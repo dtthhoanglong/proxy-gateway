@@ -310,10 +310,10 @@ def add_vm():
         suggested_instance = next(
             (
                 number
-                for number in range(104, MAX_INSTANCE + 1)
+                for number in range(MIN_INSTANCE, MAX_INSTANCE + 1)
                 if number not in used_instances
             ),
-            104,
+            MIN_INSTANCE,
         )
 
         return render_template(
