@@ -85,6 +85,12 @@ proxy_pass = sys.argv[5]
 lines = path.read_text().splitlines()
 result = []
 inside_socks5 = False
+updated = {
+    "address": False,
+    "port": False,
+    "username": False,
+    "password": False,
+}
 
 for line in lines:
     stripped = line.strip()
@@ -102,14 +108,24 @@ for line in lines:
 
         if stripped.startswith("address:"):
             line = f"{indent}address: {proxy_ip}"
+            updated["address"] = True
         elif stripped.startswith("port:"):
             line = f"{indent}port: {proxy_port}"
+            updated["port"] = True
         elif stripped.startswith("username:"):
             line = f"{indent}username: {proxy_user}"
+            updated["username"] = True
         elif stripped.startswith("password:"):
             line = f"{indent}password: {proxy_pass}"
+            updated["password"] = True
 
     result.append(line)
+
+missing = [name for name, found in updated.items() if not found]
+if missing:
+    raise SystemExit(
+        "Thiếu trường trong phần socks5: " + ", ".join(missing)
+    )
 
 path.write_text("\n".join(result) + "\n")
 PY
@@ -132,7 +148,9 @@ fi
 
 trap - ERR
 
-/usr/local/sbin/cleanup-hev-backups.sh
+if [ -x /usr/local/sbin/cleanup-hev-backups.sh ]; then
+    /usr/local/sbin/cleanup-hev-backups.sh || true
+fi
 
 echo
 echo "Đổi proxy thành công."
