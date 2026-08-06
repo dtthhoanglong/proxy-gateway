@@ -39,14 +39,18 @@ fi
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP="${DHCP_CONFIG}.bak-${TIMESTAMP}"
 TEMP_FILE="$(mktemp)"
+CONFIG_INSTALLED=0
 
 cp -a "$DHCP_CONFIG" "$BACKUP"
 
 restore_old_config() {
-    echo "Đang khôi phục cấu hình DHCP cũ..." >&2
-    cp -a "$BACKUP" "$DHCP_CONFIG"
-    systemctl restart isc-dhcp-server 2>/dev/null || true
     rm -f "$TEMP_FILE"
+
+    if [ "$CONFIG_INSTALLED" -eq 1 ]; then
+        echo "Đang khôi phục cấu hình DHCP cũ..." >&2
+        cp -a "$BACKUP" "$DHCP_CONFIG"
+        systemctl restart isc-dhcp-server 2>/dev/null || true
+    fi
 }
 
 trap restore_old_config ERR
@@ -95,6 +99,7 @@ target.write_text(text.rstrip() + "\n" + block)
 PY
 
 install -o root -g root -m 644 "$TEMP_FILE" "$DHCP_CONFIG"
+CONFIG_INSTALLED=1
 rm -f "$TEMP_FILE"
 
 dhcpd -t -4 -cf "$DHCP_CONFIG"
@@ -109,7 +114,9 @@ fi
 
 trap - ERR
 
-/usr/local/sbin/cleanup-hev-backups.sh	
+if [ -x /usr/local/sbin/cleanup-hev-backups.sh ]; then
+    /usr/local/sbin/cleanup-hev-backups.sh || true
+fi
 
 echo
 echo "Gán DHCP reservation thành công."
