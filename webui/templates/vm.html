@@ -319,6 +319,34 @@
                 </form>
             </div>
         </section>
+
+        <section class="card">
+            <h2>Xóa VM</h2>
+
+            <p>
+                Thao tác này sẽ dừng tunnel, xóa HEV instance,
+                policy routing và DHCP reservation của VM{{ vm.instance }}.
+            </p>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'delete_vm',
+                    instance=vm.instance
+                ) }}"
+                onsubmit="return confirm(
+                    'Bạn có chắc muốn xóa VM{{ vm.instance }}? '
+                    + 'Thao tác này không thể hoàn tác.'
+                );"
+            >
+                <button
+                    class="danger"
+                    type="submit"
+                >
+                    Xóa VM{{ vm.instance }}
+                </button>
+            </form>
+        </section>
     </main>
 </body>
 </html>

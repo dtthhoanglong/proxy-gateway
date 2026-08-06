@@ -627,6 +627,36 @@ def service_action(instance: int, action: str):
     )
 
 
+@app.post("/vm/<int:instance>/delete")
+def delete_vm(instance: int):
+    if not valid_instance(instance):
+        flash("VM không hợp lệ.", "error")
+        return redirect(url_for("index"))
+
+    success, output = run_command(
+        [
+            str(REMOVE_INSTANCE_SCRIPT),
+            str(instance),
+        ],
+        timeout=60,
+    )
+
+    if success:
+        flash(
+            f"Đã xóa VM{instance}, HEV instance và DHCP reservation.",
+            "success",
+        )
+        return redirect(url_for("index"))
+
+    flash(
+        output or f"Không thể xóa VM{instance}.",
+        "error",
+    )
+    return redirect(
+        url_for("vm_detail", instance=instance)
+    )
+
+
 @app.route("/health")
 def health():
     return {"status": "ok"}
