@@ -1,0 +1,14 @@
+[Unit]
+Description=HEV SOCKS5 Tunnel for VM %i
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hev-socks5-tunnel /etc/hev/%i/config.yml
+ExecStartPost=/usr/local/sbin/hev-instance-up.sh %i
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

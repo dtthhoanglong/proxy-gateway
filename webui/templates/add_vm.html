@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Thêm VM - Proxy Gateway</title>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: #f2f4f7;
+            color: #20252b;
+            font-family: Arial, sans-serif;
+        }
+
+        .header {
+            background: #253545;
+            color: white;
+            padding: 18px 24px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .container {
+            max-width: 760px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+
+        .back {
+            display: inline-block;
+            margin-bottom: 14px;
+            color: #1769aa;
+            text-decoration: none;
+        }
+
+        .card {
+            padding: 20px;
+            background: white;
+            border: 1px solid #d8dde2;
+            border-radius: 7px;
+        }
+
+        .card h2 {
+            margin: 0 0 18px;
+            font-size: 19px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        input {
+            width: 100%;
+            margin-bottom: 15px;
+            padding: 10px;
+            border: 1px solid #bec6ce;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 17px;
+            border: 0;
+            border-radius: 4px;
+            background: #1769aa;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:hover { background: #12588f; }
+
+        .message {
+            margin-bottom: 14px;
+            padding: 12px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+
+        .success {
+            background: #daf3e3;
+            color: #176b38;
+        }
+
+        .error {
+            background: #f7dddd;
+            color: #8c2525;
+        }
+
+        .note {
+            margin-bottom: 18px;
+            padding: 12px;
+            background: #eef4f9;
+            border-radius: 5px;
+            color: #44515d;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <h1>Thêm máy ảo</h1>
+    </header>
+
+    <main class="container">
+        <a class="back" href="{{ url_for('index') }}">
+            ← Quay lại danh sách
+        </a>
+
+        {% with messages = get_flashed_messages(
+            with_categories=true
+        ) %}
+            {% for category, message in messages %}
+                <div class="message {{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endwith %}
+
+        <section class="card">
+            <h2>Tạo VM và HEV instance</h2>
+
+            <div class="note">
+                VM104 sẽ tự nhận IP 10.0.1.104,
+                tunnel hev104 và bảng route hev104.
+            </div>
+
+            <form method="post" action="{{ url_for('add_vm') }}">
+                <label for="instance">Số VM</label>
+                <input
+                    id="instance"
+                    name="instance"
+                    type="number"
+                    min="101"
+                    max="120"
+                    value="{{ suggested_instance }}"
+                    required
+                >
+
+                <label for="mac">MAC address</label>
+                <input
+                    id="mac"
+                    name="mac"
+                    placeholder="00:0C:29:AA:BB:CC"
+                    required
+                >
+
+                <label for="proxy_ip">Proxy IP</label>
+                <input
+                    id="proxy_ip"
+                    name="proxy_ip"
+                    placeholder="203.0.113.10"
+                    required
+                >
+
+                <label for="proxy_port">Port</label>
+                <input
+                    id="proxy_port"
+                    name="proxy_port"
+                    inputmode="numeric"
+                    placeholder="3904"
+                    required
+                >
+
+                <label for="username">Username</label>
+                <input
+                    id="username"
+                    name="username"
+                    placeholder="ExampleUser4"
+                    required
+                >
+
+                <label for="password">Password</label>
+                <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autocomplete="new-password"
+                    required
+                >
+
+                <button type="submit">
+                    Tạo VM
+                </button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

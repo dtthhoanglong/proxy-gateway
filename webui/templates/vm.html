@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>{{ vm.name }} - Proxy Gateway</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #f2f4f7;
+            color: #20252b;
+            font-family: Arial, sans-serif;
+        }
+
+        .header {
+            background: #253545;
+            color: white;
+            padding: 18px 24px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+
+        .back {
+            display: inline-block;
+            margin-bottom: 14px;
+            color: #1769aa;
+            text-decoration: none;
+        }
+
+        .card {
+            margin-bottom: 18px;
+            padding: 18px;
+            background: white;
+            border: 1px solid #d8dde2;
+            border-radius: 7px;
+        }
+
+        .card h2 {
+            margin: 0 0 16px;
+            font-size: 18px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 160px 1fr;
+            gap: 10px 16px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        input {
+            width: 100%;
+            margin-bottom: 14px;
+            padding: 10px;
+            border: 1px solid #bec6ce;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            padding: 9px 15px;
+            border: 0;
+            border-radius: 4px;
+            background: #1769aa;
+            color: white;
+            cursor: pointer;
+        }
+
+        button:hover {
+            opacity: .9;
+        }
+
+        .danger {
+            background: #a73333;
+        }
+
+        .warning {
+            background: #a36a00;
+        }
+
+        .buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .message {
+            margin-bottom: 14px;
+            padding: 12px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+
+        .success {
+            background: #daf3e3;
+            color: #176b38;
+        }
+
+        .error {
+            background: #f7dddd;
+            color: #8c2525;
+        }
+
+        .active {
+            color: #15723b;
+            font-weight: bold;
+        }
+
+        .inactive {
+            color: #a12828;
+            font-weight: bold;
+        }
+
+        code {
+            font-family: Consolas, monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <h1>{{ vm.name }}</h1>
+    </header>
+
+    <main class="container">
+        <a class="back" href="{{ url_for('index') }}">
+            ← Quay lại danh sách
+        </a>
+
+        {% with messages = get_flashed_messages(
+            with_categories=true
+        ) %}
+            {% for category, message in messages %}
+                <div class="message {{ category }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endwith %}
+
+        <section class="card">
+            <h2>Thông tin hiện tại</h2>
+
+            <div class="grid">
+                <strong>IP LAN</strong>
+                <span>{{ vm.ip }}</span>
+
+                <strong>MAC</strong>
+                <code>{{ vm.mac or "Chưa gán" }}</code>
+
+                <strong>Tunnel</strong>
+                <code>{{ vm.tunnel }}</code>
+
+                <strong>Proxy</strong>
+                <span>
+                    {{ vm.proxy_ip or "-" }}{% if vm.proxy_port %}:{{ vm.proxy_port }}{% endif %}
+                </span>
+
+                <strong>Username</strong>
+                <span>{{ vm.proxy_username or "-" }}</span>
+
+                <strong>HEV</strong>
+                <span>
+                    {% if vm.hev_active %}
+                        <span class="active">Running</span>
+                    {% else %}
+                        <span class="inactive">Stopped</span>
+                    {% endif %}
+                </span>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Gán MAC và IP LAN</h2>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'set_reservation',
+                    instance=vm.instance
+                ) }}"
+            >
+                <label for="mac">MAC address</label>
+
+                <input
+                    id="mac"
+                    name="mac"
+                    value="{{ vm.mac }}"
+                    placeholder="00:0C:29:AA:BB:CC"
+                    required
+                >
+
+                <button type="submit">
+                    Lưu DHCP reservation
+                </button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Thay SOCKS5</h2>
+
+            <form
+                method="post"
+                action="{{ url_for(
+                    'change_proxy',
+                    instance=vm.instance
+                ) }}"
+            >
+                <label for="proxy_ip">Proxy IP</label>
+                <input
+                    id="proxy_ip"
+                    name="proxy_ip"
+                    value="{{ vm.proxy_ip }}"
+                    required
+                >
+
+                <label for="proxy_port">Port</label>
+                <input
+                    id="proxy_port"
+                    name="proxy_port"
+                    value="{{ vm.proxy_port }}"
+                    inputmode="numeric"
+                    required
+                >
+
+                <label for="username">Username</label>
+                <input
+                    id="username"
+                    name="username"
+                    value="{{ vm.proxy_username }}"
+                    required
+                >
+
+                <label for="password">Password</label>
+                <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autocomplete="new-password"
+                    required
+                >
+
+                <button type="submit">
+                    Thay proxy
+                </button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Điều khiển tunnel</h2>
+
+            <div class="buttons">
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'service_action',
+                        instance=vm.instance,
+                        action='start'
+                    ) }}"
+                >
+                    <button type="submit">
+                        Start
+                    </button>
+                </form>
+
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'service_action',
+                        instance=vm.instance,
+                        action='restart'
+                    ) }}"
+                >
+                    <button
+                        class="warning"
+                        type="submit"
+                    >
+                        Restart
+                    </button>
+                </form>
+
+                <form
+                    method="post"
+                    action="{{ url_for(
+                        'service_action',
+                        instance=vm.instance,
+                        action='stop'
+                    ) }}"
+                >
+                    <button
+                        class="danger"
+                        type="submit"
+                    >
+                        Stop
+                    </button>
+                </form>
+            </div>
+        </section>
+    </main>
+</body>
+</html>

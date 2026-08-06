@@ -1,0 +1,16 @@
+[Unit]
+Description=Proxy Gateway Web UI
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/proxy-gateway-ui
+ExecStart=/usr/bin/gunicorn --bind 10.0.1.1:8080 --workers 1 --timeout 30 app:app
+Restart=on-failure
+RestartSec=3
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

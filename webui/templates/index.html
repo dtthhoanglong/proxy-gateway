@@ -1,0 +1,235 @@
+sudo tee /opt/proxy-gateway-ui/templates/index.html >/dev/null <<'HTML'
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="15">
+    <title>Proxy Gateway</title>
+
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            background: #f2f4f7;
+            color: #20252b;
+            font-family: Arial, sans-serif;
+        }
+
+        .header {
+            background: #253545;
+            color: white;
+            padding: 18px 24px;
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        .header p {
+            margin: 6px 0 0;
+            color: #d0dae4;
+            font-size: 13px;
+        }
+
+        .container {
+            max-width: 1250px;
+            margin: 24px auto;
+            padding: 0 16px;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 14px;
+        }
+
+        .add-button {
+            display: inline-block;
+            padding: 10px 16px;
+            border-radius: 5px;
+            background: #1769aa;
+            color: white;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .add-button:hover {
+            background: #12588f;
+        }
+
+        .card {
+            overflow: hidden;
+            background: white;
+            border: 1px solid #d8dde2;
+            border-radius: 7px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, .04);
+        }
+
+        .card-title {
+            padding: 14px 16px;
+            border-bottom: 1px solid #e2e6ea;
+            font-size: 17px;
+            font-weight: bold;
+        }
+
+        .table-wrap { overflow-x: auto; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 13px 14px;
+            border-bottom: 1px solid #e6e9ec;
+            text-align: left;
+            font-size: 14px;
+        }
+
+        th {
+            background: #f7f8fa;
+            color: #4a5662;
+            font-size: 13px;
+        }
+
+        tr:last-child td { border-bottom: 0; }
+
+        .vm-link {
+            color: #1769aa;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .vm-link:hover { text-decoration: underline; }
+
+        .active {
+            color: #15723b;
+            font-weight: bold;
+        }
+
+        .inactive {
+            color: #a12828;
+            font-weight: bold;
+        }
+
+        .muted { color: #7a858f; }
+
+        .footer {
+            margin-top: 12px;
+            color: #78828c;
+            font-size: 12px;
+            text-align: right;
+        }
+
+        code {
+            font-family: Consolas, monospace;
+            font-size: 13px;
+        }
+
+        @media (max-width: 800px) {
+            table { min-width: 850px; }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <h1>Proxy Gateway</h1>
+        <p>Quản lý VM101–VM120</p>
+    </header>
+
+    <main class="container">
+        <div class="toolbar">
+            <a class="add-button" href="{{ url_for('add_vm') }}">
+                + Thêm VM
+            </a>
+        </div>
+
+        <section class="card">
+            <div class="card-title">Danh sách máy ảo</div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>VM</th>
+                            <th>IP LAN</th>
+                            <th>MAC address</th>
+                            <th>Tunnel</th>
+                            <th>SOCKS5</th>
+                            <th>Username</th>
+                            <th>HEV</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                    {% for vm in vms %}
+                        <tr>
+                            <td>
+                                <a class="vm-link"
+                                   href="{{ url_for(
+                                       'vm_detail',
+                                       instance=vm.instance
+                                   ) }}">
+                                    {{ vm.name }}
+                                </a>
+                            </td>
+
+                            <td>{{ vm.ip }}</td>
+
+                            <td>
+                                {% if vm.mac %}
+                                    <code>{{ vm.mac }}</code>
+                                {% else %}
+                                    <span class="muted">Chưa gán</span>
+                                {% endif %}
+                            </td>
+
+                            <td><code>{{ vm.tunnel }}</code></td>
+
+                            <td>
+                                {% if vm.proxy_ip %}
+                                    {{ vm.proxy_ip }}:{{ vm.proxy_port }}
+                                {% else %}
+                                    <span class="muted">
+                                        Chưa cấu hình
+                                    </span>
+                                {% endif %}
+                            </td>
+
+                            <td>{{ vm.proxy_username or "-" }}</td>
+
+                            <td>
+                                {% if vm.hev_active %}
+                                    <span class="active">Running</span>
+                                {% elif vm.hev_configured %}
+                                    <span class="inactive">Stopped</span>
+                                {% else %}
+                                    <span class="muted">
+                                        Chưa cấu hình
+                                    </span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="7" class="muted">
+                                Chưa có VM nào được cấu hình.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <div class="footer">
+            Cập nhật mỗi 15 giây · {{ generated_at }}
+        </div>
+    </main>
+</body>
+</html>
+HTML
