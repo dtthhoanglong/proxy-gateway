@@ -21,6 +21,12 @@ INSTANCE_CONF="${INSTANCE_DIR}/instance.conf"
 SERVICE="hev-socks5-tunnel@${INSTANCE}.service"
 TABLE_ID="$((INSTANCE + 100))"
 
+DHCP_CONFIG="/etc/dhcp/dhcpd.conf"
+DHCP_HOST="vm${INSTANCE}"
+DHCP_BACKUP=""
+DHCP_CHANGED=0
+TEMP_DHCP=""
+
 if [ ! -d "$INSTANCE_DIR" ]; then
     echo "ERROR: Instance ${INSTANCE} does not exist: ${INSTANCE_DIR}" >&2
     exit 1
@@ -44,6 +50,67 @@ BACKUP_DIR="/root/hev-removed-${INSTANCE}-${TIMESTAMP}"
 
 mkdir -p "$BACKUP_DIR"
 cp -a "$INSTANCE_DIR" "$BACKUP_DIR/"
+
+restore_dhcp() {
+    rm -f "${TEMP_DHCP:-}"
+
+    if [ "$DHCP_CHANGED" -eq 1 ] &&
+       [ -n "$DHCP_BACKUP" ] &&
+       [ -f "$DHCP_BACKUP" ]; then
+        echo "Restoring previous DHCP configuration..." >&2
+        cp -a "$DHCP_BACKUP" "$DHCP_CONFIG"
+        systemctl restart isc-dhcp-server 2>/dev/null || true
+    fi
+}
+
+trap restore_dhcp ERR
+
+if [ -f "$DHCP_CONFIG" ]; then
+    DHCP_BACKUP="${DHCP_CONFIG}.bak-${TIMESTAMP}"
+    TEMP_DHCP="$(mktemp)"
+
+    cp -a "$DHCP_CONFIG" "$DHCP_BACKUP"
+
+    python3 - "$DHCP_CONFIG" "$TEMP_DHCP" "$DHCP_HOST" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+host_name = sys.argv[3]
+
+text = source.read_text()
+
+pattern = re.compile(
+    rf"(?ms)^[ \t]*host[ \t]+{re.escape(host_name)}[ \t]*\{{"
+    rf".*?^[ \t]*\}}[ \t]*\n?"
+)
+
+updated, count = pattern.subn("", text)
+
+if count > 1:
+    raise SystemExit(
+        f"Found more than one DHCP reservation for {host_name}"
+    )
+
+target.write_text(updated.rstrip() + "\n")
+PY
+
+    install -o root -g root -m 644 "$TEMP_DHCP" "$DHCP_CONFIG"
+    DHCP_CHANGED=1
+    rm -f "$TEMP_DHCP"
+    TEMP_DHCP=""
+
+    dhcpd -t -4 -cf "$DHCP_CONFIG"
+    systemctl restart isc-dhcp-server
+    sleep 1
+
+    if ! systemctl is-active --quiet isc-dhcp-server; then
+        echo "ERROR: isc-dhcp-server is not active after removing reservation." >&2
+        false
+    fi
+fi
 
 systemctl disable --now "$SERVICE" 2>/dev/null || true
 
@@ -91,8 +158,15 @@ rm -rf "$INSTANCE_DIR"
 systemctl daemon-reload
 systemctl reset-failed "$SERVICE" 2>/dev/null || true
 
+trap - ERR
+
+if [ -x /usr/local/sbin/cleanup-hev-backups.sh ]; then
+    /usr/local/sbin/cleanup-hev-backups.sh || true
+fi
+
 echo
 echo "Removed HEV instance ${INSTANCE}."
+echo "Removed DHCP reservation: ${DHCP_HOST}"
 echo "Backup: ${BACKUP_DIR}"
 echo "Service: ${SERVICE}"
 echo "Tunnel: ${TUN_IF}"
