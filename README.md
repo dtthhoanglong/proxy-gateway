@@ -16,6 +16,20 @@ Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, policy routing, IS
 - Automatic configuration backups
 - Lightweight design for low-power hardware
 
+## Documentation
+
+### English
+
+- [Installation Guide](docs/INSTALL_EN.md)
+- [Deployment Guide](docs/DEPLOYMENT_GUIDE_EN.md)
+- [Source Code Guide](docs/SOURCE_CODE_GUIDE_EN.md)
+
+### Tiếng Việt
+
+- [Hướng dẫn cài đặt](docs/INSTALL_VI.md)
+- [Hướng dẫn triển khai](docs/DEPLOYMENT_GUIDE_VI.md)
+- [Hướng dẫn phân tích mã nguồn](docs/SOURCE_CODE_GUIDE_VI.md)
+
 ## Network Layout
 
 ```text
@@ -30,3 +44,4 @@ LAN: enp1s0
    |
 VM101 - VM120
 10.0.1.101 - 10.0.1.120
+
