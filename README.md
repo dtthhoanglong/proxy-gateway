@@ -1,4 +1,4 @@
-# Proxy Gateway v1.0.2
+# Proxy Gateway v1.0.3
 
 Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, policy routing, ISC DHCP Server, dnsmasq, and a Flask Web UI.
 
@@ -15,6 +15,11 @@ Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, policy routing, IS
 - Automatic rollback
 - Automatic configuration backups
 - Lightweight design for low-power hardware
+- Per-VM DNS Leak Protection
+- Per-VM Unbound DNS Resolver
+- DNS upstream forced through HEV/SOCKS5 using TCP
+- DNS fail-close protection
+- Automatic DNS provisioning and cleanup
 
 ## Documentation
 

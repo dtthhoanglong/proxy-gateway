@@ -1,4 +1,4 @@
-# Proxy Gateway v1.0.2 Deployment Guide
+# Proxy Gateway v1.0.3 Deployment Guide
 
 ---
 
@@ -10,7 +10,7 @@ Proxy Gateway
 
 Version
 
-v1.0.2
+v1.0.3
 
 Target Platform
 
@@ -1890,7 +1890,7 @@ journalctl -fu proxy-gateway-ui
 
 ## 9.11 Security Warning
 
-Version v1.0.2 does not provide:
+Version v1.0.3 does not provide:
 
 - Web UI authentication
 - HTTPS
@@ -2325,7 +2325,7 @@ If any item fails, resolve it before creating the first VM.
 
 Kết thúc Chương 10
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 1)
 
@@ -2410,7 +2410,7 @@ After clicking Create, Proxy Gateway performs:
 
 Kết thúc Chương 11 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 2)
 
@@ -2535,7 +2535,7 @@ point-to-point tunnel interface.
 
 Kết thúc Chương 11 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 3)
 
@@ -2634,7 +2634,7 @@ DHCP DNS configuration and the gateway DNS service before continuing.
 
 Kết thúc Chương 11 - Part 3
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 4)
 
@@ -2806,7 +2806,7 @@ successfully and the gateway is ready for additional VM instances.
 
 Kết thúc Chương 11
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 1)
 
@@ -2819,7 +2819,7 @@ Chapter 12 (Part 1)
 After the first VM has been tested successfully, Proxy Gateway can be
 expanded to manage additional virtual machines.
 
-Version v1.0.2 supports managed instance numbers:
+Version v1.0.3 supports managed instance numbers:
 
     101 through 120
 
@@ -2957,7 +2957,7 @@ Do not create all 20 instances first and test them only at the end.
 
 Kết thúc Chương 12 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 2)
 
@@ -3205,7 +3205,7 @@ production-ready.
 
 Kết thúc Chương 12 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 3)
 
@@ -3347,7 +3347,7 @@ After recreating it, repeat the relevant verification steps from Chapter
 
 12.15 Capacity Model
 
-Version v1.0.2 supports instance numbers 101 through 120.
+Version v1.0.3 supports instance numbers 101 through 120.
 
 A fully populated deployment therefore contains up to:
 
@@ -3463,7 +3463,7 @@ for normal operation.
 
 Kết thúc Chương 12
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 13 (Part 1)
 
@@ -3672,7 +3672,7 @@ failure.
 
 Kết thúc Chương 13 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 13 (Part 2)
 
@@ -4031,7 +4031,7 @@ After restore:
 
 Kết thúc Chương 13
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 14 (Part 1)
 
@@ -4275,7 +4275,7 @@ Verify that the backup archive can be listed before continuing.
 
 Kết thúc Chương 14 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 14 (Part 2)
 
@@ -4657,7 +4657,7 @@ After upgrade:
 
 Kết thúc Chương 14
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 1)
 
@@ -5006,7 +5006,7 @@ than recursively through the HEV tunnel.
 
 Kết thúc Chương 15 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 2)
 
@@ -5401,7 +5401,7 @@ and restart only after validation succeeds.
 
 Kết thúc Chương 15 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 3)
 
@@ -5801,3 +5801,88 @@ Repair the first layer that fails, verify it, and then continue upward.
 ------------------------------------------------------------------------
 
 Kết thúc Chương 15
+
+---
+
+# Bổ sung v1.0.3 - DNS riêng theo từng VM và DNS fail-close
+
+v1.0.3 bổ sung một Unbound instance riêng cho mỗi VM. DNS của VM được redirect
+từ port 53 sang listener riêng trên `10.0.1.1`, sau đó Unbound dùng source IP
+`198.19.<INSTANCE>.1` và policy-route truy vấn upstream qua đúng routing table
+`hev<INSTANCE>`.
+
+```text
+DNS_SOURCE_IP=198.19.<INSTANCE>.1
+DNS_PORT=53000+INSTANCE
+DNS_RULE_PRIORITY=INSTANCE+1000
+DNS_BLOCK_PRIORITY=INSTANCE+1100
+DNS_SERVICE=proxy-gateway-dns@<INSTANCE>.service
+DNS_CONFIG=/etc/unbound/proxy-gateway/vm<INSTANCE>.conf
+```
+
+Ví dụ VM104 dùng `10.0.1.1:53104`, source `198.19.104.1`, table `hev104`.
+
+`add-hev-instance.sh` tạo DNS config, source IP, DNS policy rules, UDP/TCP
+redirect và bật `proxy-gateway-dns@<INSTANCE>.service`. Rollback phải dọn cả
+HEV và DNS state.
+
+`remove-hev-instance.sh` dừng/disable DNS service và xóa DNS config, source IP,
+DNS policy rules, redirect rules cùng tài nguyên HEV.
+
+`dns-instance-up.sh` được systemd gọi trước Unbound để dựng lại runtime DNS
+state sau reboot/service restart.
+
+Template service:
+
+```text
+/etc/systemd/system/proxy-gateway-dns@.service
+```
+
+Unbound per-VM sử dụng TCP upstream, `outgoing-interface:
+198.19.<INSTANCE>.1`, `do-ip6: no`, `forward-first: no` và:
+
+```yaml
+remote-control:
+    control-enable: no
+```
+
+Việc tắt remote-control tránh nhiều Unbound instance tranh control port
+`127.0.0.1:8953`.
+
+## Kiểm tra
+
+```bash
+systemctl is-active proxy-gateway-dns@104
+sudo ss -lntup | grep 53104
+ip addr show lo | grep 198.19.104.1
+ip rule | grep -E '10\.0\.1\.104|198\.19\.104\.1'
+ip route get 8.8.8.8 from 198.19.104.1
+dig @10.0.1.1 -p 53104 dnsleaktest.com
+sudo iptables -t nat -S PREROUTING | grep -E '10\.0\.1\.104|53104'
+```
+
+Khi HEV hoạt động, route phải chọn `dev hev104 table hev104` và DNS resolve
+thành công.
+
+## DNS fail-close
+
+```bash
+sudo systemctl stop hev-socks5-tunnel@104
+ip route get 8.8.8.8 from 198.19.104.1
+```
+
+Kết quả route phải là `Network is unreachable`. Một truy vấn DNS mới từ VM104
+phải thất bại và Internet cũng phải thất bại; DNS không được fallback trực tiếp
+ra WAN.
+
+Sau:
+
+```bash
+sudo systemctl start hev-socks5-tunnel@104
+```
+
+DNS và Internet phải phục hồi qua proxy.
+
+Lưu ý: DNS do chính Ubuntu gateway hoặc ứng dụng quản trị sinh ra có thể vẫn
+xuất hiện trên WAN. Khi kiểm tra leak của VM cần lọc theo IP VM và
+`198.19.<INSTANCE>.1`.

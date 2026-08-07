@@ -1,4 +1,4 @@
-# Proxy Gateway v1.0.2 Deployment Guide
+# Proxy Gateway v1.0.3 Deployment Guide
 
 ---
 
@@ -10,7 +10,7 @@ Proxy Gateway
 
 Version
 
-v1.0.2
+v1.0.3
 
 Target Platform
 
@@ -1648,7 +1648,7 @@ journalctl -fu proxy-gateway-ui
 
 ## 9.11 Security Warning
 
-Version v1.0.2 does not provide:
+Version v1.0.3 does not provide:
 
 - Web UI authentication
 - HTTPS
@@ -2019,7 +2019,7 @@ If any item fails, resolve it before creating the first VM.
 
 End of Chapter 10
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 1)
 
@@ -2104,7 +2104,7 @@ After clicking Create, Proxy Gateway performs:
 
 End of Chapter 11 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 2)
 
@@ -2229,7 +2229,7 @@ point-to-point tunnel interface.
 
 End of Chapter 11 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 3)
 
@@ -2328,7 +2328,7 @@ DHCP DNS configuration and the gateway DNS service before continuing.
 
 End of Chapter 11 - Part 3
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 11 (Part 4)
 
@@ -2500,7 +2500,7 @@ successfully and the gateway is ready for additional VM instances.
 
 End of Chapter 11
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 1)
 
@@ -2513,7 +2513,7 @@ Chapter 12 (Part 1)
 After the first VM has been tested successfully, Proxy Gateway can be
 expanded to manage additional virtual machines.
 
-Version v1.0.2 supports managed instance numbers:
+Version v1.0.3 supports managed instance numbers:
 
     101 through 120
 
@@ -2651,7 +2651,7 @@ Do not create all 20 instances first and test them only at the end.
 
 End of Chapter 12 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 2)
 
@@ -2899,7 +2899,7 @@ production-ready.
 
 End of Chapter 12 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 12 (Part 3)
 
@@ -3041,7 +3041,7 @@ After recreating it, repeat the relevant verification steps from Chapter
 
 12.15 Capacity Model
 
-Version v1.0.2 supports instance numbers 101 through 120.
+Version v1.0.3 supports instance numbers 101 through 120.
 
 A fully populated deployment therefore contains up to:
 
@@ -3157,7 +3157,7 @@ for normal operation.
 
 End of Chapter 12
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 13 (Part 1)
 
@@ -3366,7 +3366,7 @@ failure.
 
 End of Chapter 13 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 13 (Part 2)
 
@@ -3725,7 +3725,7 @@ After restore:
 
 End of Chapter 13
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 14 (Part 1)
 
@@ -3969,7 +3969,7 @@ Verify that the backup archive can be listed before continuing.
 
 End of Chapter 14 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 14 (Part 2)
 
@@ -4351,7 +4351,7 @@ After upgrade:
 
 End of Chapter 14
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 1)
 
@@ -4700,7 +4700,7 @@ than recursively through the HEV tunnel.
 
 End of Chapter 15 - Part 1
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 2)
 
@@ -5095,7 +5095,7 @@ and restart only after validation succeeds.
 
 End of Chapter 15 - Part 2
 
-Proxy Gateway v1.0.2 Deployment Guide
+Proxy Gateway v1.0.3 Deployment Guide
 
 Chapter 15 (Part 3)
 
@@ -5495,3 +5495,84 @@ Repair the first layer that fails, verify it, and then continue upward.
 ------------------------------------------------------------------------
 
 End of Chapter 15
+
+---
+
+# v1.0.3 Addendum - Per-VM DNS and DNS Fail-Close
+
+v1.0.3 adds one independent Unbound instance per VM. VM DNS is redirected from port 53 to a dedicated listener on `10.0.1.1`; Unbound then uses `198.19.<INSTANCE>.1` as its source address and policy-routes upstream DNS through the matching `hev<INSTANCE>` table.
+
+```text
+DNS_SOURCE_IP=198.19.<INSTANCE>.1
+DNS_PORT=53000+INSTANCE
+DNS_RULE_PRIORITY=INSTANCE+1000
+DNS_BLOCK_PRIORITY=INSTANCE+1100
+DNS_SERVICE=proxy-gateway-dns@<INSTANCE>.service
+DNS_CONFIG=/etc/unbound/proxy-gateway/vm<INSTANCE>.conf
+```
+
+Example: VM104 uses `10.0.1.1:53104`, source `198.19.104.1`, and table `hev104`.
+
+`add-hev-instance.sh` provisions the DNS config, source address, DNS policy
+rules, UDP/TCP redirects, and `proxy-gateway-dns@<INSTANCE>.service`. Rollback
+removes both HEV and DNS state.
+
+`remove-hev-instance.sh` stops/disables the DNS service and removes the DNS
+config, source address, policy rules, redirects, and HEV resources.
+
+`dns-instance-up.sh` is executed before Unbound to rebuild per-VM DNS runtime
+state after reboot or service restart.
+
+The systemd template is:
+
+```text
+/etc/systemd/system/proxy-gateway-dns@.service
+```
+
+Per-VM Unbound uses TCP upstream, `outgoing-interface:
+198.19.<INSTANCE>.1`, `do-ip6: no`, `forward-first: no`, and:
+
+```yaml
+remote-control:
+    control-enable: no
+```
+
+Disabling remote control prevents multiple Unbound processes from competing
+for control port `127.0.0.1:8953`.
+
+## Verification
+
+```bash
+systemctl is-active proxy-gateway-dns@104
+sudo ss -lntup | grep 53104
+ip addr show lo | grep 198.19.104.1
+ip rule | grep -E '10\.0\.1\.104|198\.19\.104\.1'
+ip route get 8.8.8.8 from 198.19.104.1
+dig @10.0.1.1 -p 53104 dnsleaktest.com
+sudo iptables -t nat -S PREROUTING | grep -E '10\.0\.1\.104|53104'
+```
+
+With HEV active, routing must select `dev hev104 table hev104` and DNS must
+resolve successfully.
+
+## DNS fail-close
+
+```bash
+sudo systemctl stop hev-socks5-tunnel@104
+ip route get 8.8.8.8 from 198.19.104.1
+```
+
+The route test must return `Network is unreachable`. A fresh DNS query from
+VM104 and Internet access must fail; DNS must not fall back to the direct WAN.
+
+After:
+
+```bash
+sudo systemctl start hev-socks5-tunnel@104
+```
+
+DNS and Internet access must recover through the proxy.
+
+Note: DNS generated by the Ubuntu gateway itself or management applications
+may still appear on WAN. VM leak testing should filter by the VM address and
+`198.19.<INSTANCE>.1`.

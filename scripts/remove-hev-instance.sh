@@ -18,7 +18,10 @@ fi
 
 INSTANCE_DIR="/etc/hev/${INSTANCE}"
 INSTANCE_CONF="${INSTANCE_DIR}/instance.conf"
+
 SERVICE="hev-socks5-tunnel@${INSTANCE}.service"
+DNS_SERVICE="proxy-gateway-dns@${INSTANCE}.service"
+
 TABLE_ID="$((INSTANCE + 100))"
 
 DHCP_CONFIG="/etc/dhcp/dhcpd.conf"
@@ -27,16 +30,24 @@ DHCP_BACKUP=""
 DHCP_CHANGED=0
 TEMP_DHCP=""
 
+DNS_CONFIG="/etc/unbound/proxy-gateway/vm${INSTANCE}.conf"
+
 if [ ! -d "$INSTANCE_DIR" ]; then
     echo "ERROR: Instance ${INSTANCE} does not exist: ${INSTANCE_DIR}" >&2
     exit 1
 fi
 
-# Defaults match add-hev-instance.sh. Existing instance.conf may override them.
+# Defaults for compatibility with older instances.
 CLIENT_IP="10.0.1.${INSTANCE}"
 TUN_IF="hev${INSTANCE}"
 ROUTE_TABLE="hev${INSTANCE}"
 RULE_PRIORITY="$((INSTANCE + 900))"
+
+DNS_SOURCE_IP="198.19.${INSTANCE}.1"
+DNS_PORT="$((53000 + INSTANCE))"
+DNS_RULE_PRIORITY="$((INSTANCE + 1000))"
+DNS_BLOCK_PRIORITY="$((INSTANCE + 1100))"
+
 LAN_IF="enp1s0"
 WAN_IF="wlp2s0"
 
@@ -49,7 +60,12 @@ TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 BACKUP_DIR="/root/hev-removed-${INSTANCE}-${TIMESTAMP}"
 
 mkdir -p "$BACKUP_DIR"
+
 cp -a "$INSTANCE_DIR" "$BACKUP_DIR/"
+
+if [ -f "$DNS_CONFIG" ]; then
+    cp -a "$DNS_CONFIG" "$BACKUP_DIR/"
+fi
 
 restore_dhcp() {
     rm -f "${TEMP_DHCP:-}"
@@ -57,13 +73,20 @@ restore_dhcp() {
     if [ "$DHCP_CHANGED" -eq 1 ] &&
        [ -n "$DHCP_BACKUP" ] &&
        [ -f "$DHCP_BACKUP" ]; then
+
         echo "Restoring previous DHCP configuration..." >&2
+
         cp -a "$DHCP_BACKUP" "$DHCP_CONFIG"
+
         systemctl restart isc-dhcp-server 2>/dev/null || true
     fi
 }
 
 trap restore_dhcp ERR
+
+#
+# Remove DHCP reservation.
+#
 
 if [ -f "$DHCP_CONFIG" ]; then
     DHCP_BACKUP="${DHCP_CONFIG}.bak-${TIMESTAMP}"
@@ -97,66 +120,190 @@ if count > 1:
 target.write_text(updated.rstrip() + "\n")
 PY
 
-    install -o root -g root -m 644 "$TEMP_DHCP" "$DHCP_CONFIG"
+    install -o root -g root -m 644 \
+        "$TEMP_DHCP" \
+        "$DHCP_CONFIG"
+
     DHCP_CHANGED=1
+
     rm -f "$TEMP_DHCP"
     TEMP_DHCP=""
 
     dhcpd -t -4 -cf "$DHCP_CONFIG"
+
     systemctl restart isc-dhcp-server
+
     sleep 1
 
     if ! systemctl is-active --quiet isc-dhcp-server; then
-        echo "ERROR: isc-dhcp-server is not active after removing reservation." >&2
+        echo \
+            "ERROR: isc-dhcp-server is not active after removing reservation." \
+            >&2
         false
     fi
 fi
 
+#
+# Stop services.
+#
+
+systemctl disable --now "$DNS_SERVICE" 2>/dev/null || true
 systemctl disable --now "$SERVICE" 2>/dev/null || true
+
+#
+# Remove DNS policy routing.
+#
+
+while ip rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do
+    :
+done
+
+while ip rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do
+    :
+done
+
+#
+# Remove VM policy routing.
+#
 
 while ip rule del priority "$RULE_PRIORITY" 2>/dev/null; do
     :
 done
 
-ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+#
+# Remove per-VM DNS redirect.
+#
+
+while iptables -t nat -C PREROUTING \
+    -i "$LAN_IF" \
+    -s "${CLIENT_IP}/32" \
+    -d 10.0.1.1 \
+    -p udp \
+    --dport 53 \
+    -j REDIRECT \
+    --to-ports "$DNS_PORT" 2>/dev/null; do
+
+    iptables -t nat -D PREROUTING \
+        -i "$LAN_IF" \
+        -s "${CLIENT_IP}/32" \
+        -d 10.0.1.1 \
+        -p udp \
+        --dport 53 \
+        -j REDIRECT \
+        --to-ports "$DNS_PORT"
+done
+
+while iptables -t nat -C PREROUTING \
+    -i "$LAN_IF" \
+    -s "${CLIENT_IP}/32" \
+    -d 10.0.1.1 \
+    -p tcp \
+    --dport 53 \
+    -j REDIRECT \
+    --to-ports "$DNS_PORT" 2>/dev/null; do
+
+    iptables -t nat -D PREROUTING \
+        -i "$LAN_IF" \
+        -s "${CLIENT_IP}/32" \
+        -d 10.0.1.1 \
+        -p tcp \
+        --dport 53 \
+        -j REDIRECT \
+        --to-ports "$DNS_PORT"
+done
+
+#
+# Remove DNS source address.
+#
+
+ip addr del "${DNS_SOURCE_IP}/32" dev lo \
+    2>/dev/null || true
+
+#
+# Remove HEV routing state.
+#
+
+ip route flush table "$ROUTE_TABLE" \
+    2>/dev/null || true
+
 ip route flush cache
 
+#
+# Remove FORWARD rules.
+#
+
 while iptables -C FORWARD \
-    -s "${CLIENT_IP}/32" -i "$LAN_IF" -o "$TUN_IF" \
+    -s "${CLIENT_IP}/32" \
+    -i "$LAN_IF" \
+    -o "$TUN_IF" \
     -j ACCEPT 2>/dev/null; do
+
     iptables -D FORWARD \
-        -s "${CLIENT_IP}/32" -i "$LAN_IF" -o "$TUN_IF" \
+        -s "${CLIENT_IP}/32" \
+        -i "$LAN_IF" \
+        -o "$TUN_IF" \
         -j ACCEPT
 done
 
 while iptables -C FORWARD \
-    -d "${CLIENT_IP}/32" -i "$TUN_IF" -o "$LAN_IF" \
-    -m conntrack --ctstate ESTABLISHED,RELATED \
+    -d "${CLIENT_IP}/32" \
+    -i "$TUN_IF" \
+    -o "$LAN_IF" \
+    -m conntrack \
+    --ctstate ESTABLISHED,RELATED \
     -j ACCEPT 2>/dev/null; do
+
     iptables -D FORWARD \
-        -d "${CLIENT_IP}/32" -i "$TUN_IF" -o "$LAN_IF" \
-        -m conntrack --ctstate ESTABLISHED,RELATED \
+        -d "${CLIENT_IP}/32" \
+        -i "$TUN_IF" \
+        -o "$LAN_IF" \
+        -m conntrack \
+        --ctstate ESTABLISHED,RELATED \
         -j ACCEPT
 done
 
 while iptables -C FORWARD \
-    -s "${CLIENT_IP}/32" -i "$LAN_IF" -o "$WAN_IF" \
+    -s "${CLIENT_IP}/32" \
+    -i "$LAN_IF" \
+    -o "$WAN_IF" \
     -j REJECT 2>/dev/null; do
+
     iptables -D FORWARD \
-        -s "${CLIENT_IP}/32" -i "$LAN_IF" -o "$WAN_IF" \
+        -s "${CLIENT_IP}/32" \
+        -i "$LAN_IF" \
+        -o "$WAN_IF" \
         -j REJECT
 done
 
-ip link delete "$TUN_IF" 2>/dev/null || true
+#
+# Remove tunnel if still present.
+#
+
+ip link delete "$TUN_IF" \
+    2>/dev/null || true
+
+#
+# Remove routing-table registration.
+#
 
 sed -i -E \
     "/^[[:space:]]*${TABLE_ID}[[:space:]]+${ROUTE_TABLE}[[:space:]]*$/d" \
     /etc/iproute2/rt_tables
 
+#
+# Remove persistent configuration.
+#
+
+rm -f "$DNS_CONFIG"
 rm -rf "$INSTANCE_DIR"
 
 systemctl daemon-reload
-systemctl reset-failed "$SERVICE" 2>/dev/null || true
+
+systemctl reset-failed "$SERVICE" \
+    2>/dev/null || true
+
+systemctl reset-failed "$DNS_SERVICE" \
+    2>/dev/null || true
 
 trap - ERR
 
@@ -165,9 +312,12 @@ if [ -x /usr/local/sbin/cleanup-hev-backups.sh ]; then
 fi
 
 echo
-echo "Removed HEV instance ${INSTANCE}."
+echo "Removed Proxy Gateway instance ${INSTANCE}."
 echo "Removed DHCP reservation: ${DHCP_HOST}"
+echo "Removed DNS service: ${DNS_SERVICE}"
+echo "Removed DNS source IP: ${DNS_SOURCE_IP}"
+echo "Removed DNS redirect port: ${DNS_PORT}"
 echo "Backup: ${BACKUP_DIR}"
-echo "Service: ${SERVICE}"
+echo "HEV service: ${SERVICE}"
 echo "Tunnel: ${TUN_IF}"
 echo "Routing table: ${ROUTE_TABLE} (${TABLE_ID})"

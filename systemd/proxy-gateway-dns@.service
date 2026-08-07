@@ -1,0 +1,23 @@
+[Unit]
+Description=Proxy Gateway DNS for VM %i
+Wants=network-online.target
+After=network-online.target
+After=hev-socks5-tunnel@%i.service
+
+[Service]
+Type=simple
+
+ExecStartPre=/usr/local/sbin/dns-instance-up.sh %i
+
+ExecStart=/usr/sbin/unbound \
+    -d \
+    -c /etc/unbound/proxy-gateway/vm%i.conf
+
+Restart=on-failure
+RestartSec=3
+
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

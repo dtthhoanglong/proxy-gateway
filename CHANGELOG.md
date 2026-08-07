@@ -1,5 +1,33 @@
 # Changelog
 
+## v1.0.3
+
+### Added
+
+- Per-VM DNS leak protection.
+- Dedicated Unbound resolver instance for each managed VM.
+- Per-VM DNS source addresses using `198.19.<INSTANCE>.1`.
+- Per-VM DNS listener ports using `53<INSTANCE>`.
+- DNS upstream forwarding forced over TCP through the assigned HEV tunnel.
+- DNS fail-close policy using a dedicated `unreachable` rule.
+- Automatic DNS redirect from VM traffic on port 53 to the corresponding Unbound instance.
+- New `dns-instance-up.sh` management script.
+- New `proxy-gateway-dns@.service` systemd template.
+
+### Changed
+
+- `add-hev-instance.sh` now provisions DNS isolation automatically.
+- `remove-hev-instance.sh` now removes DNS services, rules, addresses, redirects, and configuration.
+- DNS traffic no longer uses the gateway WAN resolver path for managed VMs.
+
+### Tested
+
+- DNS resolution through HEV/SOCKS5.
+- DNS fail-close when HEV is stopped.
+- Internet fail-close when HEV is stopped.
+- Automatic DNS recovery after HEV restart.
+- Complete cleanup after deleting a VM instance.
+
 All notable changes to this project are documented in this file.
 
 The format is based on Keep a Changelog.

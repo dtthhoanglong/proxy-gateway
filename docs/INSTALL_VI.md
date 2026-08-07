@@ -1,6 +1,6 @@
 # Hướng dẫn Cài đặt Proxy Gateway
 
-Version: **v1.0.2**
+Version: **v1.0.3**
 
 ---
 
@@ -366,7 +366,7 @@ Cần các thành phần phần mềm sau.
 |-----------|---------|
 | HEV SOCKS5 Tunnel | Tunnel SOCKS5 |
 | ISC DHCP Server | DHCP reservation |
-| dnsmasq | Chuyển tiếp DNS |
+| Unbound | DNS riêng theo VM và DNS fail-close |
 | Flask | Web UI |
 | Python 3 | Backend |
 | systemd | Quản lý service |
@@ -1387,7 +1387,7 @@ Sau khi tạo lại, kiểm tra:
 - DHCP reservation tồn tại.
 - Public IP khớp với proxy SOCKS5.
 
-Quy trình này đã được xác nhận trong các bài kiểm thử hệ thống v1.0.2.
+Quy trình này đã được xác nhận trong các bài kiểm thử hệ thống v1.0.3.
 
 ---
 
@@ -1711,7 +1711,7 @@ Flask Web UI
 | Phiên bản | Mô tả |
 |----------|-------------|
 | v1.0.1 | Bản phát hành công khai đầu tiên |
-| v1.0.2 | Delete VM, dọn DHCP, cải thiện rollback, nâng cấp Web UI |
+| v1.0.3 | Delete VM, dọn DHCP, cải thiện rollback, nâng cấp Web UI |
 
 ---
 
@@ -1724,3 +1724,88 @@ Xem file LICENSE để biết chi tiết.
 ---
 
 # Kết thúc tài liệu
+
+---
+
+# Bổ sung v1.0.3 - DNS riêng theo từng VM và DNS fail-close
+
+v1.0.3 bổ sung một Unbound instance riêng cho mỗi VM. DNS của VM được redirect
+từ port 53 sang listener riêng trên `10.0.1.1`, sau đó Unbound dùng source IP
+`198.19.<INSTANCE>.1` và policy-route truy vấn upstream qua đúng routing table
+`hev<INSTANCE>`.
+
+```text
+DNS_SOURCE_IP=198.19.<INSTANCE>.1
+DNS_PORT=53000+INSTANCE
+DNS_RULE_PRIORITY=INSTANCE+1000
+DNS_BLOCK_PRIORITY=INSTANCE+1100
+DNS_SERVICE=proxy-gateway-dns@<INSTANCE>.service
+DNS_CONFIG=/etc/unbound/proxy-gateway/vm<INSTANCE>.conf
+```
+
+Ví dụ VM104 dùng `10.0.1.1:53104`, source `198.19.104.1`, table `hev104`.
+
+`add-hev-instance.sh` tạo DNS config, source IP, DNS policy rules, UDP/TCP
+redirect và bật `proxy-gateway-dns@<INSTANCE>.service`. Rollback phải dọn cả
+HEV và DNS state.
+
+`remove-hev-instance.sh` dừng/disable DNS service và xóa DNS config, source IP,
+DNS policy rules, redirect rules cùng tài nguyên HEV.
+
+`dns-instance-up.sh` được systemd gọi trước Unbound để dựng lại runtime DNS
+state sau reboot/service restart.
+
+Template service:
+
+```text
+/etc/systemd/system/proxy-gateway-dns@.service
+```
+
+Unbound per-VM sử dụng TCP upstream, `outgoing-interface:
+198.19.<INSTANCE>.1`, `do-ip6: no`, `forward-first: no` và:
+
+```yaml
+remote-control:
+    control-enable: no
+```
+
+Việc tắt remote-control tránh nhiều Unbound instance tranh control port
+`127.0.0.1:8953`.
+
+## Kiểm tra
+
+```bash
+systemctl is-active proxy-gateway-dns@104
+sudo ss -lntup | grep 53104
+ip addr show lo | grep 198.19.104.1
+ip rule | grep -E '10\.0\.1\.104|198\.19\.104\.1'
+ip route get 8.8.8.8 from 198.19.104.1
+dig @10.0.1.1 -p 53104 dnsleaktest.com
+sudo iptables -t nat -S PREROUTING | grep -E '10\.0\.1\.104|53104'
+```
+
+Khi HEV hoạt động, route phải chọn `dev hev104 table hev104` và DNS resolve
+thành công.
+
+## DNS fail-close
+
+```bash
+sudo systemctl stop hev-socks5-tunnel@104
+ip route get 8.8.8.8 from 198.19.104.1
+```
+
+Kết quả route phải là `Network is unreachable`. Một truy vấn DNS mới từ VM104
+phải thất bại và Internet cũng phải thất bại; DNS không được fallback trực tiếp
+ra WAN.
+
+Sau:
+
+```bash
+sudo systemctl start hev-socks5-tunnel@104
+```
+
+DNS và Internet phải phục hồi qua proxy.
+
+Lưu ý: DNS do chính Ubuntu gateway hoặc ứng dụng quản trị sinh ra có thể vẫn
+xuất hiện trên WAN. Khi kiểm tra leak của VM cần lọc theo IP VM và
+`198.19.<INSTANCE>.1`.
