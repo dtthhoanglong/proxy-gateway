@@ -1,0 +1,15 @@
+# Proxy Gateway network configuration
+#
+# Copy this file to:
+# /etc/proxy-gateway/network.conf
+#
+# Replace LAN_IF, WAN_IF and WAN_GW with values
+# appropriate for the target machine.
+
+LAN_IF="LAN_INTERFACE"
+WAN_IF="WAN_INTERFACE"
+
+LAN_IP="10.0.1.1"
+LAN_NET="10.0.1.0/24"
+
+WAN_GW="WAN_GATEWAY"

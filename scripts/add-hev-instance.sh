@@ -1,6 +1,23 @@
 #!/bin/bash
 set -euo pipefail
 
+NETWORK_CONF="/etc/proxy-gateway/network.conf"
+
+if [ ! -f "$NETWORK_CONF" ]; then
+    echo "ERROR: Missing network configuration: $NETWORK_CONF" >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$NETWORK_CONF"
+
+: "${LAN_IF:?Missing LAN_IF}"
+: "${WAN_IF:?Missing WAN_IF}"
+: "${LAN_IP:?Missing LAN_IP}"
+: "${LAN_NET:?Missing LAN_NET}"
+: "${WAN_GW:?Missing WAN_GW}"
+
+
 if [ "$#" -ne 5 ]; then
     echo "Usage:"
     echo "  sudo $0 INSTANCE PROXY_IP PROXY_PORT USERNAME PASSWORD"
@@ -76,18 +93,18 @@ rollback() {
     while ip rule del priority "$RULE_PRIORITY" 2>/dev/null; do :; done
 
     while iptables -t nat -C PREROUTING \
-        -i enp1s0 \
+        -i "$LAN_IF" \
         -s "${CLIENT_IP}/32" \
-        -d 10.0.1.1 \
+        -d "$LAN_IP" \
         -p udp \
         --dport 53 \
         -j REDIRECT \
         --to-ports "$DNS_PORT" 2>/dev/null; do
 
         iptables -t nat -D PREROUTING \
-            -i enp1s0 \
+            -i "$LAN_IF" \
             -s "${CLIENT_IP}/32" \
-            -d 10.0.1.1 \
+            -d "$LAN_IP" \
             -p udp \
             --dport 53 \
             -j REDIRECT \
@@ -95,18 +112,18 @@ rollback() {
     done
 
     while iptables -t nat -C PREROUTING \
-        -i enp1s0 \
+        -i "$LAN_IF" \
         -s "${CLIENT_IP}/32" \
-        -d 10.0.1.1 \
+        -d "$LAN_IP" \
         -p tcp \
         --dport 53 \
         -j REDIRECT \
         --to-ports "$DNS_PORT" 2>/dev/null; do
 
         iptables -t nat -D PREROUTING \
-            -i enp1s0 \
+            -i "$LAN_IF" \
             -s "${CLIENT_IP}/32" \
-            -d 10.0.1.1 \
+            -d "$LAN_IP" \
             -p tcp \
             --dport 53 \
             -j REDIRECT \
@@ -212,20 +229,20 @@ DNS_PORT=${DNS_PORT}
 DNS_RULE_PRIORITY=${DNS_RULE_PRIORITY}
 DNS_BLOCK_PRIORITY=${DNS_BLOCK_PRIORITY}
 
-LAN_IF=enp1s0
-LAN_NET=10.0.1.0/24
-WAN_IF=wlp2s0
-WAN_GW=192.168.2.1
+LAN_IF=${LAN_IF}
+LAN_NET=${LAN_NET}
+WAN_IF=${WAN_IF}
+WAN_GW=${WAN_GW}
 EOF_INSTANCE
 
 cat > "$DNS_CONFIG" <<EOF_DNS
 server:
     verbosity: 1
 
-    interface: 10.0.1.1@${DNS_PORT}
+    interface: ${LAN_IP}@${DNS_PORT}
 
     access-control: ${CLIENT_IP}/32 allow
-    access-control: 10.0.1.1/32 allow
+    access-control: ${LAN_IP}/32 allow
     access-control: 0.0.0.0/0 refuse
 
     do-ip4: yes

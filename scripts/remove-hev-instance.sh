@@ -1,6 +1,22 @@
 #!/bin/bash
 set -euo pipefail
 
+NETWORK_CONF="/etc/proxy-gateway/network.conf"
+
+if [ ! -f "$NETWORK_CONF" ]; then
+    echo "ERROR: Missing network configuration: $NETWORK_CONF" >&2
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$NETWORK_CONF"
+
+: "${LAN_IF:?Missing LAN_IF}"
+: "${WAN_IF:?Missing WAN_IF}"
+: "${LAN_IP:?Missing LAN_IP}"
+: "${LAN_NET:?Missing LAN_NET}"
+: "${WAN_GW:?Missing WAN_GW}"
+
 if [ "$#" -ne 1 ]; then
     echo "Usage: sudo $0 INSTANCE"
     echo "Example: sudo $0 104"
@@ -48,8 +64,6 @@ DNS_PORT="$((53000 + INSTANCE))"
 DNS_RULE_PRIORITY="$((INSTANCE + 1000))"
 DNS_BLOCK_PRIORITY="$((INSTANCE + 1100))"
 
-LAN_IF="enp1s0"
-WAN_IF="wlp2s0"
 
 if [ -f "$INSTANCE_CONF" ]; then
     # shellcheck disable=SC1090
@@ -177,7 +191,7 @@ done
 while iptables -t nat -C PREROUTING \
     -i "$LAN_IF" \
     -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
+    -d "$LAN_IP" \
     -p udp \
     --dport 53 \
     -j REDIRECT \
@@ -186,7 +200,7 @@ while iptables -t nat -C PREROUTING \
     iptables -t nat -D PREROUTING \
         -i "$LAN_IF" \
         -s "${CLIENT_IP}/32" \
-        -d 10.0.1.1 \
+        -d "$LAN_IP" \
         -p udp \
         --dport 53 \
         -j REDIRECT \
@@ -196,7 +210,7 @@ done
 while iptables -t nat -C PREROUTING \
     -i "$LAN_IF" \
     -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
+    -d "$LAN_IP" \
     -p tcp \
     --dport 53 \
     -j REDIRECT \
@@ -205,7 +219,7 @@ while iptables -t nat -C PREROUTING \
     iptables -t nat -D PREROUTING \
         -i "$LAN_IF" \
         -s "${CLIENT_IP}/32" \
-        -d 10.0.1.1 \
+        -d "$LAN_IP" \
         -p tcp \
         --dport 53 \
         -j REDIRECT \
