@@ -33,7 +33,7 @@ dùng một SOCKS5 riêng qua HEV SOCKS5 Tunnel\
 
 ------------------------------------------------------------------------
 
-# Chương 1 --- Tắt Cloud-Init quản lý mạng
+# Chương 1 --- Tắt Cloud-Init quản lý mạng và bỏ chờ WAN khi boot
 
 Ubuntu Server có thể để Cloud-Init tạo lại cấu hình mạng sau khi reboot.
 Proxy Gateway cần cấu hình mạng ổn định, vì vậy chỉ tắt phần quản lý
@@ -59,6 +59,33 @@ network: {config: disabled}
 ```
 
 Không cần gỡ toàn bộ Cloud-Init.
+
+## 1.1 Tắt dịch vụ chờ mạng khi khởi động
+
+Trên Ubuntu Server dùng `systemd-networkd`, dịch vụ
+`systemd-networkd-wait-online.service` có thể làm máy chờ khoảng 2 phút
+nếu cổng WAN không có link hoặc không nhận được DHCP. Proxy Gateway phải
+vẫn boot bình thường khi WAN bị rút dây, vì vậy tắt và mask dịch vụ này:
+
+``` bash
+sudo systemctl disable systemd-networkd-wait-online.service
+sudo systemctl mask systemd-networkd-wait-online.service
+```
+
+Kiểm tra:
+
+``` bash
+systemctl is-enabled systemd-networkd-wait-online.service
+```
+
+Kết quả mong đợi:
+
+``` text
+masked
+```
+
+Nên kiểm thử bằng cách ngắt kết nối WAN rồi reboot. Ubuntu Server phải
+boot thẳng vào hệ thống mà không dừng ở thông báo `Wait for Network to be Configured`.
 
 ------------------------------------------------------------------------
 
@@ -95,22 +122,59 @@ WAN_GW=192.168.2.1
 `192.168.2.1` là gateway của modem; địa chỉ WAN của Ubuntu có thể thay
 đổi theo DHCP và không cần cố định trong runtime script.
 
-## 2.2 Cấu hình Netplan
+## 2.2 Xác định và mở file Netplan đang sử dụng
 
-Ví dụ, thay `WAN_INTERFACE` và `LAN_INTERFACE` bằng tên thật:
+Liệt kê các file Netplan hiện có:
+
+``` bash
+ls -l /etc/netplan/
+```
+
+Trên Ubuntu Server clean install thường gặp file như:
+
+``` text
+/etc/netplan/50-cloud-init.yaml
+```
+
+hoặc:
+
+``` text
+/etc/netplan/00-installer-config.yaml
+```
+
+Mở **đúng file đang có trên máy**. Ví dụ:
+
+``` bash
+sudo nano /etc/netplan/50-cloud-init.yaml
+```
+
+Nếu máy dùng tên file khác, thay `50-cloud-init.yaml` bằng tên thật.
+Interface LAN có thể chưa xuất hiện trong file Netplan mặc định; khi đó
+phải tự thêm LAN vào file này. Việc LAN chưa có trong Netplan không liên
+quan đến việc đã cài DHCP Server hay chưa.
+
+## 2.3 Cấu hình WAN và LAN trong Netplan
+
+Thay `WAN_INTERFACE` và `LAN_INTERFACE` bằng tên interface thật đã xác
+định ở mục 2.1:
 
 ``` yaml
 network:
   version: 2
-  renderer: NetworkManager
   ethernets:
+    WAN_INTERFACE:
+      dhcp4: true
+      optional: true
+
     LAN_INTERFACE:
       dhcp4: false
       addresses:
         - 10.0.1.1/24
-    WAN_INTERFACE:
-      dhcp4: true
+      optional: true
 ```
+
+Ví dụ: nếu `ens33` là WAN và `ens34` là LAN thì thay đúng hai tên đó
+trong file Netplan.
 
 Áp dụng:
 
@@ -119,14 +183,19 @@ sudo netplan generate
 sudo netplan apply
 ```
 
-Kiểm tra:
+Nếu xuất hiện cảnh báo về Open vSwitch nhưng `netplan generate` và
+`netplan apply` không báo lỗi cấu hình, có thể tiếp tục nếu hệ thống
+không sử dụng Open vSwitch.
+
+Kiểm tra bắt buộc trước khi sang chương DHCP:
 
 ``` bash
 ip -br a
 ip route
 ```
 
-Phải có `10.0.1.1/24` trên LAN và default route qua WAN.
+LAN phải có `10.0.1.1/24` và WAN phải có default route. **Không tiếp tục
+cài/cấu hình DHCP nếu interface LAN chưa có `10.0.1.1/24`.**
 
 ------------------------------------------------------------------------
 
@@ -187,9 +256,14 @@ Không được trỏ DHCP vào WAN. Nếu trỏ nhầm WAN, `dhcpd` sẽ báo k
 
 ## 4.3 Cấu hình DHCP
 
-Trong `/etc/dhcp/dhcpd.conf`, subnet của Proxy Gateway phải có DNS là
-**gateway `10.0.1.1`**, không cấp trực tiếp `8.8.8.8` hoặc `1.1.1.1` cho
-VM.
+Với clean install, file `/etc/dhcp/dhcpd.conf` có nhiều cấu hình mẫu mặc
+định dễ gây nhầm lẫn. Mở file:
+
+``` bash
+sudo nano /etc/dhcp/dhcpd.conf
+```
+
+Xóa toàn bộ nội dung cũ và thay bằng cấu hình sau:
 
 ``` text
 authoritative;
@@ -205,22 +279,34 @@ subnet 10.0.1.0 netmask 255.255.255.0 {
 }
 ```
 
-Điểm này rất quan trọng. DNS per-VM và DNS fail-close chỉ hoạt động đúng
-khi client gửi DNS tới `10.0.1.1`.
+DNS của VM phải là **gateway `10.0.1.1`**; không cấp trực tiếp `8.8.8.8`
+hoặc `1.1.1.1`. DNS per-VM và DNS fail-close chỉ hoạt động đúng khi
+client gửi DNS tới `10.0.1.1`.
 
-Kiểm tra syntax:
+Lưu file rồi kiểm tra syntax:
 
 ``` bash
 sudo dhcpd -t -4 -cf /etc/dhcp/dhcpd.conf
 ```
 
-Khởi động:
+Nếu lệnh trên không báo lỗi syntax, mới khởi động DHCP:
 
 ``` bash
 sudo systemctl restart isc-dhcp-server
 sudo systemctl enable isc-dhcp-server
 systemctl status isc-dhcp-server --no-pager
 ```
+
+Nếu DHCP không start, kiểm tra ngay:
+
+``` bash
+ip -br a
+grep -E '^INTERFACESv4=' /etc/default/isc-dhcp-server
+sudo journalctl -u isc-dhcp-server -n 50 --no-pager
+```
+
+Interface LAN phải đang có `10.0.1.1/24` trước khi `isc-dhcp-server` có
+thể bind và hoạt động.
 
 ------------------------------------------------------------------------
 
@@ -281,6 +367,8 @@ sudo apt install -y \
   iptables \
   python3 \
   python3-pip \
+  python3-flask \
+  gunicorn \
   unbound \
   dnsutils
 ```
@@ -508,19 +596,29 @@ này. Các instance chỉ được start sau khi Add VM tạo đủ file cấu h
 
 # Chương 10 --- Cài Web UI
 
-## 10.1 Cài Gunicorn/Flask theo source project
+## 10.1 Kiểm tra dependency Web UI
 
-Từ `~/proxy-gateway`, kiểm tra thư mục Web UI và file requirements trước
-khi cài:
+`python3-flask` và `gunicorn` đã được cài bắt buộc ở Chương 6. Không phụ
+thuộc vào việc repository có `webui/requirements.txt` hay không.
+
+Kiểm tra:
+
+``` bash
+command -v gunicorn
+python3 -c 'import flask; print(flask.__version__)'
+```
+
+`command -v gunicorn` phải trả về executable path hợp lệ (thường là
+`/usr/bin/gunicorn`). Nếu thiếu, cài lại:
+
+``` bash
+sudo apt install -y python3-flask gunicorn
+```
+
+Từ `~/proxy-gateway`, kiểm tra source Web UI:
 
 ``` bash
 ls -la webui
-```
-
-Nếu repository có `webui/requirements.txt`:
-
-``` bash
-sudo python3 -m pip install -r webui/requirements.txt
 ```
 
 Tạo runtime directory và chép Web UI:
