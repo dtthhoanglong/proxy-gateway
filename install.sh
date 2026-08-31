@@ -49,7 +49,7 @@ trap 'rm -f "$tmp_hev"' EXIT
 wget -q --show-progress -O "$tmp_hev" "$HEV_URL"
 install -o root -g root -m 755 "$tmp_hev" /usr/local/bin/hev-socks5-tunnel
 mkdir -p /etc/hev
-/usr/local/bin/hev-socks5-tunnel --version
+/usr/local/bin/hev-socks5-tunnel --version || true
 ok 'HEV installed'
 
 echo '[4/10] Installing Proxy Gateway scripts...'
