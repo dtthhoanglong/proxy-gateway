@@ -15,23 +15,29 @@ source "$NETWORK_CONF"
 : "${WAN_IF:?Missing WAN_IF}"
 : "${LAN_IP:?Missing LAN_IP}"
 : "${LAN_NET:?Missing LAN_NET}"
+: "${LAN_IPV6:?Missing LAN_IPV6}"
+: "${LAN_NET6:?Missing LAN_NET6}"
 : "${WAN_GW:?Missing WAN_GW}"
 
 
-if [ "$#" -ne 5 ]; then
+if [ "$#" -ne 6 ]; then
     echo "Usage:"
-    echo "  sudo $0 INSTANCE PROXY_IP PROXY_PORT USERNAME PASSWORD"
-    echo
-    echo "Example:"
-    echo "  sudo $0 103 203.0.113.10 3903 ExampleUser3 ChangeThisPassword"
+    echo "  sudo $0 INSTANCE IP_MODE PROXY_IP PROXY_PORT USERNAME PASSWORD"
+    echo "  IP_MODE: ipv4 or ipv6"
     exit 1
 fi
 
 INSTANCE="$1"
-PROXY_IP="$2"
-PROXY_PORT="$3"
-PROXY_USER="$4"
-PROXY_PASS="$5"
+IP_MODE="$2"
+PROXY_IP="$3"
+PROXY_PORT="$4"
+PROXY_USER="$5"
+PROXY_PASS="$6"
+
+case "$IP_MODE" in
+    ipv4|ipv6) ;;
+    *) echo "ERROR: IP_MODE must be ipv4 or ipv6." >&2; exit 1 ;;
+esac
 
 if ! [[ "$INSTANCE" =~ ^[0-9]+$ ]] ||
    [ "$INSTANCE" -lt 101 ] ||
@@ -48,9 +54,11 @@ if ! [[ "$PROXY_PORT" =~ ^[0-9]+$ ]] ||
 fi
 
 CLIENT_IP="10.0.1.${INSTANCE}"
+CLIENT_IPV6="fd10:0:1::${INSTANCE}"
 
 TUN_IF="hev${INSTANCE}"
 TUN_IPV4="198.18.0.$((INSTANCE - 100))"
+TUN_IPV6="fd18::${INSTANCE}"
 
 ROUTE_TABLE="hev${INSTANCE}"
 TABLE_ID="$((INSTANCE + 100))"
@@ -58,6 +66,7 @@ RULE_PRIORITY="$((INSTANCE + 900))"
 
 # Per-VM DNS isolation.
 DNS_SOURCE_IP="198.19.${INSTANCE}.1"
+DNS_SOURCE_IPV6="fd19::${INSTANCE}"
 DNS_PORT="$((53000 + INSTANCE))"
 DNS_RULE_PRIORITY="$((INSTANCE + 1000))"
 DNS_BLOCK_PRIORITY="$((INSTANCE + 1100))"
@@ -91,6 +100,86 @@ rollback() {
     while ip rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do :; done
     while ip rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do :; done
     while ip rule del priority "$RULE_PRIORITY" 2>/dev/null; do :; done
+    while ip -6 rule del priority "$RULE_PRIORITY" 2>/dev/null; do :; done
+
+    # Remove IPv4 forwarding/fail-close rules that may have been
+    # installed by hev-instance-up.sh before a later step failed.
+    while iptables -C FORWARD \
+        -s "${CLIENT_IP}/32" \
+        -i "$LAN_IF" \
+        -o "$TUN_IF" \
+        -j ACCEPT 2>/dev/null; do
+        iptables -D FORWARD \
+            -s "${CLIENT_IP}/32" \
+            -i "$LAN_IF" \
+            -o "$TUN_IF" \
+            -j ACCEPT
+    done
+
+    while iptables -C FORWARD \
+        -d "${CLIENT_IP}/32" \
+        -i "$TUN_IF" \
+        -o "$LAN_IF" \
+        -m conntrack --ctstate ESTABLISHED,RELATED \
+        -j ACCEPT 2>/dev/null; do
+        iptables -D FORWARD \
+            -d "${CLIENT_IP}/32" \
+            -i "$TUN_IF" \
+            -o "$LAN_IF" \
+            -m conntrack --ctstate ESTABLISHED,RELATED \
+            -j ACCEPT
+    done
+
+    while iptables -C FORWARD \
+        -s "${CLIENT_IP}/32" \
+        -i "$LAN_IF" \
+        -o "$WAN_IF" \
+        -j REJECT 2>/dev/null; do
+        iptables -D FORWARD \
+            -s "${CLIENT_IP}/32" \
+            -i "$LAN_IF" \
+            -o "$WAN_IF" \
+            -j REJECT
+    done
+
+    # Remove IPv6 forwarding/fail-close rules.
+    while ip6tables -C FORWARD \
+        -s "${CLIENT_IPV6}/128" \
+        -i "$LAN_IF" \
+        -o "$TUN_IF" \
+        -j ACCEPT 2>/dev/null; do
+        ip6tables -D FORWARD \
+            -s "${CLIENT_IPV6}/128" \
+            -i "$LAN_IF" \
+            -o "$TUN_IF" \
+            -j ACCEPT
+    done
+
+    while ip6tables -C FORWARD \
+        -d "${CLIENT_IPV6}/128" \
+        -i "$TUN_IF" \
+        -o "$LAN_IF" \
+        -m conntrack --ctstate ESTABLISHED,RELATED \
+        -j ACCEPT 2>/dev/null; do
+        ip6tables -D FORWARD \
+            -d "${CLIENT_IPV6}/128" \
+            -i "$TUN_IF" \
+            -o "$LAN_IF" \
+            -m conntrack --ctstate ESTABLISHED,RELATED \
+            -j ACCEPT
+    done
+
+    while ip6tables -C FORWARD \
+        -s "${CLIENT_IPV6}/128" \
+        -i "$LAN_IF" \
+        -o "$WAN_IF" \
+        -j REJECT 2>/dev/null; do
+        ip6tables -D FORWARD \
+            -s "${CLIENT_IPV6}/128" \
+            -i "$LAN_IF" \
+            -o "$WAN_IF" \
+            -j REJECT
+    done
 
     while iptables -t nat -C PREROUTING \
         -i "$LAN_IF" \
@@ -133,7 +222,9 @@ rollback() {
     ip addr del "${DNS_SOURCE_IP}/32" dev lo 2>/dev/null || true
 
     ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
+    ip -6 route flush table "$ROUTE_TABLE" 2>/dev/null || true
     ip route flush cache 2>/dev/null || true
+    ip -6 route flush cache 2>/dev/null || true
     ip link delete "$TUN_IF" 2>/dev/null || true
 
     if [ "$TABLE_ADDED" -eq 1 ]; then
@@ -184,7 +275,11 @@ command -v unbound-checkconf >/dev/null 2>&1 || {
 
 echo "Checking proxy ${PROXY_IP}:${PROXY_PORT}..."
 
-if ! nc -z -w 5 "$PROXY_IP" "$PROXY_PORT"; then
+NC_FAMILY=""
+[ "$IP_MODE" = "ipv4" ] && NC_FAMILY="-4"
+[ "$IP_MODE" = "ipv6" ] && NC_FAMILY="-6"
+
+if ! nc $NC_FAMILY -z -w 5 "$PROXY_IP" "$PROXY_PORT"; then
     echo "ERROR: Cannot connect to ${PROXY_IP}:${PROXY_PORT}." >&2
     exit 1
 fi
@@ -201,6 +296,7 @@ tunnel:
   name: ${TUN_IF}
   mtu: 1500
   ipv4: ${TUN_IPV4}
+  ipv6: ${TUN_IPV6}
 
 socks5:
   address: ${PROXY_IP}
@@ -217,24 +313,63 @@ misc:
 EOF_CONFIG
 
 cat > "$INSTANCE_CONFIG" <<EOF_INSTANCE
+IP_MODE=${IP_MODE}
 CLIENT_IP=${CLIENT_IP}
+CLIENT_IPV6=${CLIENT_IPV6}
 TUN_IF=${TUN_IF}
+TUN_IPV4=${TUN_IPV4}
+TUN_IPV6=${TUN_IPV6}
 ROUTE_TABLE=${ROUTE_TABLE}
 TABLE_ID=${TABLE_ID}
 RULE_PRIORITY=${RULE_PRIORITY}
 PROXY_IP=${PROXY_IP}
 
 DNS_SOURCE_IP=${DNS_SOURCE_IP}
+DNS_SOURCE_IPV6=${DNS_SOURCE_IPV6}
 DNS_PORT=${DNS_PORT}
 DNS_RULE_PRIORITY=${DNS_RULE_PRIORITY}
 DNS_BLOCK_PRIORITY=${DNS_BLOCK_PRIORITY}
 
 LAN_IF=${LAN_IF}
+LAN_IP=${LAN_IP}
 LAN_NET=${LAN_NET}
+LAN_IPV6=${LAN_IPV6}
+LAN_NET6=${LAN_NET6}
 WAN_IF=${WAN_IF}
 WAN_GW=${WAN_GW}
 EOF_INSTANCE
 
+if [ "$IP_MODE" = "ipv6" ]; then
+cat > "$DNS_CONFIG" <<EOF_DNS
+server:
+    verbosity: 1
+
+    interface: ${LAN_IPV6}@${DNS_PORT}
+
+    access-control: ${CLIENT_IPV6}/128 allow
+    access-control: ${LAN_IPV6}/128 allow
+    access-control: ::/0 refuse
+
+    do-ip4: no
+    do-ip6: yes
+    do-udp: yes
+    do-tcp: yes
+
+    tcp-upstream: yes
+    outgoing-interface: ${DNS_SOURCE_IPV6}
+
+    hide-identity: yes
+    hide-version: yes
+forward-zone:
+    name: "."
+    forward-addr: 2606:4700:4700::1111
+    forward-addr: 2001:4860:4860::8888
+    forward-first: no
+
+remote-control:
+    control-enable: no
+EOF_DNS
+else
 cat > "$DNS_CONFIG" <<EOF_DNS
 server:
     verbosity: 1
@@ -264,6 +399,7 @@ forward-zone:
 remote-control:
     control-enable: no
 EOF_DNS
+fi
 
 CREATED_DNS_CONFIG=1
 

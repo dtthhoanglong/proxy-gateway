@@ -1,0 +1,118 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: sudo proxy-gateway-set-nics <WAN_IF> <LAN_IF>"
+    echo "Example: sudo proxy-gateway-set-nics enp2s0 enp3s0"
+    exit 1
+fi
+
+WAN_IF="$1"
+LAN_IF="$2"
+
+LAN_IP="10.0.1.1"
+LAN_NET="10.0.1.0/24"
+
+LAN_IPV6="fd10:0:1::1"
+LAN_NET6="fd10:0:1::/64"
+
+if [ "$WAN_IF" = "$LAN_IF" ]; then
+    echo "ERROR: WAN and LAN cannot be the same." >&2
+    exit 1
+fi
+
+if ! ip link show "$WAN_IF" >/dev/null 2>&1; then
+    echo "ERROR: WAN '$WAN_IF' does not exist." >&2
+    exit 1
+fi
+
+if ! ip link show "$LAN_IF" >/dev/null 2>&1; then
+    echo "ERROR: LAN '$LAN_IF' does not exist." >&2
+    exit 1
+fi
+
+cat > /etc/netplan/50-cloud-init.yaml <<NETPLAN
+network:
+    version: 2
+    ethernets:
+        ${WAN_IF}:
+            dhcp4: true
+            dhcp6: false
+            accept-ra: true
+            optional: true
+
+        ${LAN_IF}:
+            dhcp4: false
+            dhcp6: false
+            addresses:
+                - ${LAN_IP}/24
+                - ${LAN_IPV6}/64
+            optional: true
+NETPLAN
+
+chmod 600 /etc/netplan/50-cloud-init.yaml
+
+cat > /etc/default/isc-dhcp-server <<DHCP
+INTERFACESv4="${LAN_IF}"
+INTERFACESv6=""
+DHCP
+
+mkdir -p /etc/sysctl.d
+
+cat > /etc/sysctl.d/99-proxy-gateway.conf <<SYSCTL
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+SYSCTL
+
+sysctl --system >/dev/null
+
+netplan generate
+netplan apply
+
+WAN_GW=""
+
+for i in $(seq 1 30); do
+    WAN_GW="$(ip route show default dev "$WAN_IF" 2>/dev/null \
+        | awk '/default via/ {print $3; exit}')"
+
+    [ -n "$WAN_GW" ] && break
+    sleep 1
+done
+
+if [ -z "$WAN_GW" ]; then
+    echo "ERROR: Cannot detect WAN gateway on $WAN_IF." >&2
+    exit 1
+fi
+
+mkdir -p /etc/proxy-gateway
+
+cat > /etc/proxy-gateway/network.conf <<CONF
+LAN_IF="${LAN_IF}"
+WAN_IF="${WAN_IF}"
+
+LAN_IP="${LAN_IP}"
+LAN_NET="${LAN_NET}"
+
+LAN_IPV6="${LAN_IPV6}"
+LAN_NET6="${LAN_NET6}"
+
+WAN_GW="${WAN_GW}"
+CONF
+
+systemctl restart isc-dhcp-server
+
+echo
+echo "Proxy Gateway NIC configuration complete."
+echo "WAN_IF   = $WAN_IF"
+echo "WAN_GW   = $WAN_GW"
+echo "LAN_IF   = $LAN_IF"
+echo "LAN_IP   = $LAN_IP"
+echo "LAN_IPV6 = $LAN_IPV6"
+echo
+
+ip -br addr show "$WAN_IF"
+ip -br addr show "$LAN_IF"
+
+echo
+echo "IPv4 forwarding = $(sysctl -n net.ipv4.ip_forward)"
+echo "IPv6 forwarding = $(sysctl -n net.ipv6.conf.all.forwarding)"

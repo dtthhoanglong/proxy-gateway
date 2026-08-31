@@ -3,13 +3,16 @@
 # Copy this file to:
 # /etc/proxy-gateway/network.conf
 #
-# Replace LAN_IF, WAN_IF and WAN_GW with values
-# appropriate for the target machine.
+# LAN_IF and WAN_IF should be selected for the target machine.
+# WAN_GW is the IPv4 gateway learned/configured for the WAN.
 
 LAN_IF="LAN_INTERFACE"
 WAN_IF="WAN_INTERFACE"
 
 LAN_IP="10.0.1.1"
 LAN_NET="10.0.1.0/24"
+
+LAN_IPV6="fd10:0:1::1"
+LAN_NET6="fd10:0:1::/64"
 
 WAN_GW="WAN_GATEWAY"

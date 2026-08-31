@@ -15,6 +15,8 @@ source "$NETWORK_CONF"
 : "${WAN_IF:?Missing WAN_IF}"
 : "${LAN_IP:?Missing LAN_IP}"
 : "${LAN_NET:?Missing LAN_NET}"
+: "${LAN_IPV6:?Missing LAN_IPV6}"
+: "${LAN_NET6:?Missing LAN_NET6}"
 : "${WAN_GW:?Missing WAN_GW}"
 
 if [ "$#" -ne 1 ]; then
@@ -54,12 +56,17 @@ if [ ! -d "$INSTANCE_DIR" ]; then
 fi
 
 # Defaults for compatibility with older instances.
+IP_MODE="dual"
 CLIENT_IP="10.0.1.${INSTANCE}"
+CLIENT_IPV6="fd10:0:1::${INSTANCE}"
 TUN_IF="hev${INSTANCE}"
+TUN_IPV4="198.18.0.$((INSTANCE - 100))"
+TUN_IPV6="fd18::${INSTANCE}"
 ROUTE_TABLE="hev${INSTANCE}"
 RULE_PRIORITY="$((INSTANCE + 900))"
 
 DNS_SOURCE_IP="198.19.${INSTANCE}.1"
+DNS_SOURCE_IPV6="fd19::${INSTANCE}"
 DNS_PORT="$((53000 + INSTANCE))"
 DNS_RULE_PRIORITY="$((INSTANCE + 1000))"
 DNS_BLOCK_PRIORITY="$((INSTANCE + 1100))"
@@ -176,11 +183,23 @@ while ip rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do
     :
 done
 
+while ip -6 rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do
+    :
+done
+
+while ip -6 rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do
+    :
+done
+
 #
 # Remove VM policy routing.
 #
 
 while ip rule del priority "$RULE_PRIORITY" 2>/dev/null; do
+    :
+done
+
+while ip -6 rule del priority "$RULE_PRIORITY" 2>/dev/null; do
     :
 done
 
@@ -226,11 +245,52 @@ while iptables -t nat -C PREROUTING \
         --to-ports "$DNS_PORT"
 done
 
+while ip6tables -t nat -C PREROUTING \
+    -i "$LAN_IF" \
+    -s "${CLIENT_IPV6}/128" \
+    -d "${LAN_IPV6}/128" \
+    -p udp \
+    --dport 53 \
+    -j REDIRECT \
+    --to-ports "$DNS_PORT" 2>/dev/null; do
+
+    ip6tables -t nat -D PREROUTING \
+        -i "$LAN_IF" \
+        -s "${CLIENT_IPV6}/128" \
+        -d "${LAN_IPV6}/128" \
+        -p udp \
+        --dport 53 \
+        -j REDIRECT \
+        --to-ports "$DNS_PORT"
+done
+
+while ip6tables -t nat -C PREROUTING \
+    -i "$LAN_IF" \
+    -s "${CLIENT_IPV6}/128" \
+    -d "${LAN_IPV6}/128" \
+    -p tcp \
+    --dport 53 \
+    -j REDIRECT \
+    --to-ports "$DNS_PORT" 2>/dev/null; do
+
+    ip6tables -t nat -D PREROUTING \
+        -i "$LAN_IF" \
+        -s "${CLIENT_IPV6}/128" \
+        -d "${LAN_IPV6}/128" \
+        -p tcp \
+        --dport 53 \
+        -j REDIRECT \
+        --to-ports "$DNS_PORT"
+done
+
 #
 # Remove DNS source address.
 #
 
 ip addr del "${DNS_SOURCE_IP}/32" dev lo \
+    2>/dev/null || true
+
+ip -6 addr del "${DNS_SOURCE_IPV6}/128" dev lo \
     2>/dev/null || true
 
 #
@@ -240,7 +300,11 @@ ip addr del "${DNS_SOURCE_IP}/32" dev lo \
 ip route flush table "$ROUTE_TABLE" \
     2>/dev/null || true
 
+ip -6 route flush table "$ROUTE_TABLE" \
+    2>/dev/null || true
+
 ip route flush cache
+ip -6 route flush cache 2>/dev/null || true
 
 #
 # Remove FORWARD rules.
@@ -289,6 +353,54 @@ while iptables -C FORWARD \
         -j REJECT
 done
 
+
+#
+# Remove IPv6 FORWARD rules.
+#
+
+while ip6tables -C FORWARD \
+    -s "${CLIENT_IPV6}/128" \
+    -i "$LAN_IF" \
+    -o "$TUN_IF" \
+    -j ACCEPT 2>/dev/null; do
+
+    ip6tables -D FORWARD \
+        -s "${CLIENT_IPV6}/128" \
+        -i "$LAN_IF" \
+        -o "$TUN_IF" \
+        -j ACCEPT
+done
+
+while ip6tables -C FORWARD \
+    -d "${CLIENT_IPV6}/128" \
+    -i "$TUN_IF" \
+    -o "$LAN_IF" \
+    -m conntrack \
+    --ctstate ESTABLISHED,RELATED \
+    -j ACCEPT 2>/dev/null; do
+
+    ip6tables -D FORWARD \
+        -d "${CLIENT_IPV6}/128" \
+        -i "$TUN_IF" \
+        -o "$LAN_IF" \
+        -m conntrack \
+        --ctstate ESTABLISHED,RELATED \
+        -j ACCEPT
+done
+
+while ip6tables -C FORWARD \
+    -s "${CLIENT_IPV6}/128" \
+    -i "$LAN_IF" \
+    -o "$WAN_IF" \
+    -j REJECT 2>/dev/null; do
+
+    ip6tables -D FORWARD \
+        -s "${CLIENT_IPV6}/128" \
+        -i "$LAN_IF" \
+        -o "$WAN_IF" \
+        -j REJECT
+done
+
 #
 # Remove tunnel if still present.
 #
@@ -327,9 +439,14 @@ fi
 
 echo
 echo "Removed Proxy Gateway instance ${INSTANCE}."
-echo "Removed DHCP reservation: ${DHCP_HOST}"
+if [ "$IP_MODE" = "ipv6" ]; then
+    echo "Removed network mapping: ${CLIENT_IPV6}"
+else
+    echo "Removed DHCP reservation: ${DHCP_HOST}"
+fi
 echo "Removed DNS service: ${DNS_SERVICE}"
-echo "Removed DNS source IP: ${DNS_SOURCE_IP}"
+echo "Removed DNS source IPv4: ${DNS_SOURCE_IP}"
+echo "Removed DNS source IPv6: ${DNS_SOURCE_IPV6}"
 echo "Removed DNS redirect port: ${DNS_PORT}"
 echo "Backup: ${BACKUP_DIR}"
 echo "HEV service: ${SERVICE}"

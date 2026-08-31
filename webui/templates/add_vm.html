@@ -58,7 +58,7 @@
             font-size: 13px;
         }
 
-        input {
+        input, select {
             width: 100%;
             margin-bottom: 15px;
             padding: 10px;
@@ -132,8 +132,9 @@
             <h2>Tạo VM và HEV instance</h2>
 
             <div class="note">
-                VM104 sẽ tự nhận IP 10.0.1.104,
-                tunnel hev104 và bảng route hev104.
+                Chọn SOCKS5 IPv4 để dùng 10.0.1.x hoặc
+                SOCKS5 IPv6 để dùng fd10:0:1::x.
+                Mỗi VM chỉ dùng một proxy family.
             </div>
 
             <form method="post" action="{{ url_for('add_vm') }}">
@@ -155,6 +156,12 @@
                     placeholder="00:0C:29:AA:BB:CC"
                     required
                 >
+
+                <label for="ip_mode">Proxy Type</label>
+                <select id="ip_mode" name="ip_mode" required>
+                    <option value="ipv4">SOCKS5 IPv4</option>
+                    <option value="ipv6">SOCKS5 IPv6</option>
+                </select>
 
                 <label for="proxy_ip">Proxy IP</label>
                 <input

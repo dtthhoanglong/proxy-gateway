@@ -45,10 +45,48 @@ if [ ! -f "$INSTANCE_CONFIG" ]; then
     exit 1
 fi
 
+# shellcheck disable=SC1090
+source "$INSTANCE_CONFIG"
+
+IP_MODE="${IP_MODE:-ipv4}"
+
+if [ "$IP_MODE" != "ipv4" ] && [ "$IP_MODE" != "ipv6" ]; then
+    echo "ERROR: IP_MODE không hợp lệ trong $INSTANCE_CONFIG: $IP_MODE" >&2
+    exit 1
+fi
+
+PROXY_FAMILY="$(
+    python3 - "$NEW_PROXY_IP" <<'PYIP'
+import ipaddress
+import sys
+
+try:
+    addr = ipaddress.ip_address(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+
+print("ipv4" if addr.version == 4 else "ipv6")
+PYIP
+)" || {
+    echo "ERROR: Địa chỉ proxy không hợp lệ: $NEW_PROXY_IP" >&2
+    exit 1
+}
+
+if [ "$PROXY_FAMILY" != "$IP_MODE" ]; then
+    echo "ERROR: VM${INSTANCE} đang ở chế độ ${IP_MODE^^}; proxy mới phải cùng family." >&2
+    exit 1
+fi
+
 echo "Đang kiểm tra ${NEW_PROXY_IP}:${NEW_PROXY_PORT}..."
 
-if ! nc -z -w 5 "$NEW_PROXY_IP" "$NEW_PROXY_PORT"; then
-    echo "ERROR: Không thể kết nối tới ${NEW_PROXY_IP}:${NEW_PROXY_PORT}." >&2
+if [ "$IP_MODE" = "ipv6" ]; then
+    NC_FAMILY="-6"
+else
+    NC_FAMILY="-4"
+fi
+
+if ! nc "$NC_FAMILY" -z -w 5 "$NEW_PROXY_IP" "$NEW_PROXY_PORT"; then
+    echo "ERROR: Không thể kết nối tới ${NEW_PROXY_IP}:${NEW_PROXY_PORT} qua ${IP_MODE^^}." >&2
     exit 1
 fi
 

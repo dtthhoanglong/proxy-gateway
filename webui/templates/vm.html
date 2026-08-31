@@ -165,6 +165,15 @@
             <h2>Thông tin hiện tại</h2>
 
             <div class="grid">
+                <strong>Proxy Mode</strong>
+                <span>
+                    {% if vm.ip_mode == "ipv6" %}
+                        SOCKS5 IPv6
+                    {% else %}
+                        SOCKS5 IPv4
+                    {% endif %}
+                </span>
+
                 <strong>IP LAN</strong>
                 <span>{{ vm.ip }}</span>
 
@@ -194,7 +203,7 @@
         </section>
 
         <section class="card">
-            <h2>Gán MAC và IP LAN</h2>
+            <h2>{% if vm.ip_mode == "ipv6" %}Gán MAC và IPv6 LAN{% else %}Gán MAC và IPv4 LAN{% endif %}</h2>
 
             <form
                 method="post"
@@ -214,7 +223,7 @@
                 >
 
                 <button type="submit">
-                    Lưu DHCP reservation
+                    {% if vm.ip_mode == "ipv6" %}Lưu MAC / IPv6 mapping{% else %}Lưu DHCP reservation{% endif %}
                 </button>
             </form>
         </section>
@@ -229,7 +238,7 @@
                     instance=vm.instance
                 ) }}"
             >
-                <label for="proxy_ip">Proxy IP</label>
+                <label for="proxy_ip">Proxy IP {% if vm.ip_mode == "ipv6" %}(IPv6){% else %}(IPv4){% endif %}</label>
                 <input
                     id="proxy_ip"
                     name="proxy_ip"
@@ -325,7 +334,7 @@
 
             <p>
                 Thao tác này sẽ dừng tunnel, xóa HEV instance,
-                policy routing và DHCP reservation của VM{{ vm.instance }}.
+                policy routing và mapping mạng của VM{{ vm.instance }}.
             </p>
 
             <form

@@ -1,13 +1,16 @@
-# Proxy Gateway v1.0.3
+# Proxy Gateway
 
-Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, policy routing, ISC DHCP Server, dnsmasq, and a Flask Web UI.
+Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, IPv4/IPv6 policy routing, ISC DHCP Server, per-instance Unbound DNS, and a Flask Web UI.
 
 ## Features
 
 - One HEV SOCKS5 tunnel per VM
 - VM range from VM101 to VM120
-- Source-based policy routing
-- DHCP reservations by MAC address
+- Separate SOCKS5 IPv4 and SOCKS5 IPv6 modes
+- IPv4 and IPv6 source-based policy routing
+- One MAC mapping per VM/proxy mode
+- DHCPv4 reservations by MAC for IPv4 clients
+- IPv6 client mapping support
 - Add and delete VM from Web UI
 - Change SOCKS5 proxy from Web UI
 - Start, stop, and restart individual tunnels
@@ -38,15 +41,21 @@ Ubuntu-based multi-VM SOCKS5 gateway using HEV SOCKS5 Tunnel, policy routing, IS
 ## Network Layout
 
 ```text
-Internet
-   |
-WAN: wlp2s0
-192.168.2.200
-   |
-Ubuntu Proxy Gateway
-LAN: enp1s0
-10.0.1.1/24
-   |
-VM101 - VM120
-10.0.1.101 - 10.0.1.120
+                         Internet
+                            |
+                      WAN interface
+               DHCPv4 + IPv6 Router Advertisement
+                            |
+                    Ubuntu Proxy Gateway
+                            |
+                       LAN interface
+              10.0.1.1/24 + fd10:0:1::1/64
+                            |
+                    VM101 ... VM120
+          IPv4: 10.0.1.101 ... 10.0.1.120
+          IPv6: fd10:0:1::101 ... ::120
+```
 
+WAN and LAN interface names are selected for the target machine instead of being hard-coded.
+
+IPv4 clients use DHCPv4 reservations. IPv6 mode currently uses the configured IPv6 client address/mapping; it is not a DHCPv6 implementation.

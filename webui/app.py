@@ -203,6 +203,28 @@ def parse_hev_config(instance: int) -> dict[str, str]:
     return result
 
 
+def parse_instance_meta(instance: int) -> dict[str, str]:
+    path = HEV_ROOT / str(instance) / "instance.conf"
+    result = {
+        "ip_mode": "ipv4",
+        "client_mac": "",
+        "client_ip": f"10.0.1.{instance}",
+        "client_ipv6": f"fd10:0:1::{instance}",
+    }
+    if not path.exists():
+        return result
+    for raw_line in path.read_text(errors="replace").splitlines():
+        if "=" not in raw_line:
+            continue
+        key, value = raw_line.split("=", 1)
+        value = value.strip().strip('"').strip("'" )
+        if key == "IP_MODE": result["ip_mode"] = value
+        elif key == "CLIENT_MAC": result["client_mac"] = normalize_mac(value)
+        elif key == "CLIENT_IP": result["client_ip"] = value
+        elif key == "CLIENT_IPV6": result["client_ipv6"] = value
+    return result
+
+
 def service_name(instance: int) -> str:
     return f"hev-socks5-tunnel@{instance}.service"
 
@@ -250,6 +272,7 @@ def build_vm(instance: int) -> dict[str, Any]:
     reservations = parse_reservations()
     reservation = reservations.get(instance, {})
     hev = parse_hev_config(instance)
+    meta = parse_instance_meta(instance)
 
     config_exists = (
         HEV_ROOT / str(instance) / "config.yml"
@@ -258,11 +281,9 @@ def build_vm(instance: int) -> dict[str, Any]:
     return {
         "instance": instance,
         "name": f"VM{instance}",
-        "ip": reservation.get(
-            "ip",
-            f"10.0.1.{instance}",
-        ),
-        "mac": reservation.get("mac", ""),
+        "ip_mode": meta["ip_mode"],
+        "ip": (meta["client_ipv6"] if meta["ip_mode"] == "ipv6" else reservation.get("ip", meta["client_ip"])),
+        "mac": (meta["client_mac"] or reservation.get("mac", "")),
         "tunnel": hev["tunnel"],
         "proxy_ip": hev["proxy_ip"],
         "proxy_port": hev["proxy_port"],
@@ -299,6 +320,24 @@ def index():
     )
 
 
+def find_mac_owner(mac: str, exclude_instance: int | None = None) -> int | None:
+    target = normalize_mac(mac)
+    if not target:
+        return None
+
+    instances = set(parse_reservations().keys()) | configured_instances()
+    for candidate in sorted(instances):
+        if exclude_instance is not None and candidate == exclude_instance:
+            continue
+        if not valid_instance(candidate):
+            continue
+        vm = build_vm(candidate)
+        candidate_mac = normalize_mac(vm.get("mac", "") or "")
+        if candidate_mac and candidate_mac == target:
+            return candidate
+    return None
+
+
 @app.route("/vm/add", methods=["GET", "POST"])
 def add_vm():
     if request.method == "GET":
@@ -326,6 +365,7 @@ def add_vm():
         "",
     ).strip()
     mac = request.form.get("mac", "").strip()
+    ip_mode = request.form.get("ip_mode", "ipv4").strip().lower()
     proxy_ip = request.form.get(
         "proxy_ip",
         "",
@@ -370,10 +410,25 @@ def add_vm():
         flash("Địa chỉ MAC không hợp lệ.", "error")
         return redirect(url_for("add_vm"))
 
+    mac_owner = find_mac_owner(mac)
+    if mac_owner is not None:
+        flash(
+            f"MAC {normalize_mac(mac)} đã được gán cho VM{mac_owner}.",
+            "error",
+        )
+        return redirect(url_for("add_vm"))
+
+    if ip_mode not in {"ipv4", "ipv6"}:
+        flash("Proxy Type không hợp lệ.", "error")
+        return redirect(url_for("add_vm"))
     try:
-        ipaddress.ip_address(proxy_ip)
+        proxy_addr = ipaddress.ip_address(proxy_ip)
     except ValueError:
         flash("Địa chỉ proxy không hợp lệ.", "error")
+        return redirect(url_for("add_vm"))
+    expected_version = 4 if ip_mode == "ipv4" else 6
+    if proxy_addr.version != expected_version:
+        flash(f"Đã chọn SOCKS5 {ip_mode.upper()} nhưng Proxy IP không đúng family.", "error")
         return redirect(url_for("add_vm"))
 
     if (
@@ -394,6 +449,7 @@ def add_vm():
         [
             str(ADD_INSTANCE_SCRIPT),
             str(instance),
+            ip_mode,
             proxy_ip,
             proxy_port,
             username,
@@ -414,6 +470,7 @@ def add_vm():
             str(SET_RESERVATION_SCRIPT),
             str(instance),
             mac,
+            ip_mode,
         ],
         timeout=45,
     )
@@ -458,11 +515,8 @@ def add_vm():
             url_for("vm_detail", instance=instance)
         )
 
-    flash(
-        f"Đã tạo VM{instance}, gán IP "
-        f"10.0.1.{instance} và khởi động HEV.",
-        "success",
-    )
+    client_addr = f"fd10:0:1::{instance}" if ip_mode == "ipv6" else f"10.0.1.{instance}"
+    flash(f"Đã tạo VM{instance} ({ip_mode.upper()}), gán {client_addr} và khởi động HEV.", "success")
 
     return redirect(
         url_for("vm_detail", instance=instance)
@@ -494,11 +548,23 @@ def set_reservation(instance: int):
             url_for("vm_detail", instance=instance)
         )
 
+    mac_owner = find_mac_owner(mac, exclude_instance=instance)
+    if mac_owner is not None:
+        flash(
+            f"MAC {normalize_mac(mac)} đã được gán cho VM{mac_owner}.",
+            "error",
+        )
+        return redirect(
+            url_for("vm_detail", instance=instance)
+        )
+
+    current_mode = parse_instance_meta(instance)["ip_mode"]
     success, output = run_command(
         [
             str(SET_RESERVATION_SCRIPT),
             str(instance),
             mac,
+            current_mode,
         ],
         timeout=45,
     )
@@ -541,9 +607,22 @@ def change_proxy(instance: int):
     )
 
     try:
-        ipaddress.ip_address(proxy_ip)
+        proxy_addr = ipaddress.ip_address(proxy_ip)
     except ValueError:
         flash("Địa chỉ proxy không hợp lệ.", "error")
+        return redirect(
+            url_for("vm_detail", instance=instance)
+        )
+
+    current_mode = parse_instance_meta(instance)["ip_mode"]
+    expected_version = 4 if current_mode == "ipv4" else 6
+
+    if proxy_addr.version != expected_version:
+        flash(
+            f"VM{instance} đang ở chế độ {current_mode.upper()}, "
+            "Proxy IP mới phải cùng family.",
+            "error",
+        )
         return redirect(
             url_for("vm_detail", instance=instance)
         )
@@ -643,7 +722,7 @@ def delete_vm(instance: int):
 
     if success:
         flash(
-            f"Đã xóa VM{instance}, HEV instance và DHCP reservation.",
+            f"Đã xóa VM{instance} và HEV instance.",
             "success",
         )
         return redirect(url_for("index"))

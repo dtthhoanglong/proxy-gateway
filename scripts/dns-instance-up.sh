@@ -4,85 +4,69 @@ set -euo pipefail
 INSTANCE="${1:?Missing instance number}"
 CONF="/etc/hev/${INSTANCE}/instance.conf"
 
-if [ ! -f "$CONF" ]; then
+[ -f "$CONF" ] || {
     echo "Missing configuration: $CONF" >&2
     exit 1
-fi
+}
 
-# shellcheck disable=SC1090
 source "$CONF"
 
-: "${CLIENT_IP:?Missing CLIENT_IP}"
+IP_MODE="${IP_MODE:-ipv4}"
+
 : "${LAN_IF:?Missing LAN_IF}"
+: "${LAN_IP:?Missing LAN_IP}"
+: "${LAN_IPV6:?Missing LAN_IPV6}"
 : "${ROUTE_TABLE:?Missing ROUTE_TABLE}"
-: "${DNS_SOURCE_IP:?Missing DNS_SOURCE_IP}"
 : "${DNS_PORT:?Missing DNS_PORT}"
 : "${DNS_RULE_PRIORITY:?Missing DNS_RULE_PRIORITY}"
 : "${DNS_BLOCK_PRIORITY:?Missing DNS_BLOCK_PRIORITY}"
 
-# DNS source address used by the per-VM Unbound instance.
-if ! ip addr show dev lo | grep -Fq " ${DNS_SOURCE_IP}/32 "; then
-    ip addr add "${DNS_SOURCE_IP}/32" dev lo
-fi
+case "$IP_MODE" in
+  ipv4)
+    : "${CLIENT_IP:?Missing CLIENT_IP}"
+    : "${DNS_SOURCE_IP:?Missing DNS_SOURCE_IP}"
 
-# Remove stale rules from previous starts.
-while ip rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do
-    :
-done
+    if ! ip addr show dev lo | grep -Fq " ${DNS_SOURCE_IP}/32 "; then
+        ip addr add "${DNS_SOURCE_IP}/32" dev lo
+    fi
 
-while ip rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do
-    :
-done
+    while ip rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do :; done
+    while ip rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do :; done
 
-# First attempt to use the VM's HEV routing table.
-ip rule add \
-    priority "$DNS_RULE_PRIORITY" \
-    from "${DNS_SOURCE_IP}/32" \
-    lookup "$ROUTE_TABLE"
+    ip rule add priority "$DNS_RULE_PRIORITY" from "${DNS_SOURCE_IP}/32" lookup "$ROUTE_TABLE"
+    ip rule add priority "$DNS_BLOCK_PRIORITY" from "${DNS_SOURCE_IP}/32" unreachable
 
-# Critical fail-close rule.
-# If the HEV table has no usable route, DNS must never fall through
-# to the main routing table / WAN.
-ip rule add \
-    priority "$DNS_BLOCK_PRIORITY" \
-    from "${DNS_SOURCE_IP}/32" \
-    unreachable
+    for proto in udp tcp; do
+      iptables -t nat -C PREROUTING -i "$LAN_IF" -s "${CLIENT_IP}/32" -d "$LAN_IP" -p "$proto" --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null ||
+      iptables -t nat -I PREROUTING 1 -i "$LAN_IF" -s "${CLIENT_IP}/32" -d "$LAN_IP" -p "$proto" --dport 53 -j REDIRECT --to-ports "$DNS_PORT"
+    done
+    ;;
+
+  ipv6)
+    : "${CLIENT_IPV6:?Missing CLIENT_IPV6}"
+    DNS_SOURCE_IPV6="${DNS_SOURCE_IPV6:-fd19::${INSTANCE}}"
+
+    if ! ip -6 addr show dev lo | grep -Fq " ${DNS_SOURCE_IPV6}/128 "; then
+        ip -6 addr add "${DNS_SOURCE_IPV6}/128" dev lo
+    fi
+
+    while ip -6 rule del priority "$DNS_RULE_PRIORITY" 2>/dev/null; do :; done
+    while ip -6 rule del priority "$DNS_BLOCK_PRIORITY" 2>/dev/null; do :; done
+
+    ip -6 rule add priority "$DNS_RULE_PRIORITY" from "${DNS_SOURCE_IPV6}/128" lookup "$ROUTE_TABLE"
+    ip -6 rule add priority "$DNS_BLOCK_PRIORITY" from "${DNS_SOURCE_IPV6}/128" unreachable
+
+    for proto in udp tcp; do
+      ip6tables -t nat -C PREROUTING -i "$LAN_IF" -s "${CLIENT_IPV6}/128" -d "${LAN_IPV6}/128" -p "$proto" --dport 53 -j REDIRECT --to-ports "$DNS_PORT" 2>/dev/null ||
+      ip6tables -t nat -I PREROUTING 1 -i "$LAN_IF" -s "${CLIENT_IPV6}/128" -d "${LAN_IPV6}/128" -p "$proto" --dport 53 -j REDIRECT --to-ports "$DNS_PORT"
+    done
+    ;;
+
+  *)
+    echo "Unsupported IP_MODE: $IP_MODE" >&2
+    exit 1
+    ;;
+esac
 
 ip route flush cache
-
-# Redirect only this VM's DNS traffic to its dedicated Unbound port.
-iptables -t nat -C PREROUTING \
-    -i "$LAN_IF" \
-    -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
-    -p udp \
-    --dport 53 \
-    -j REDIRECT \
-    --to-ports "$DNS_PORT" 2>/dev/null ||
-iptables -t nat -I PREROUTING 1 \
-    -i "$LAN_IF" \
-    -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
-    -p udp \
-    --dport 53 \
-    -j REDIRECT \
-    --to-ports "$DNS_PORT"
-
-iptables -t nat -C PREROUTING \
-    -i "$LAN_IF" \
-    -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
-    -p tcp \
-    --dport 53 \
-    -j REDIRECT \
-    --to-ports "$DNS_PORT" 2>/dev/null ||
-iptables -t nat -I PREROUTING 1 \
-    -i "$LAN_IF" \
-    -s "${CLIENT_IP}/32" \
-    -d 10.0.1.1 \
-    -p tcp \
-    --dport 53 \
-    -j REDIRECT \
-    --to-ports "$DNS_PORT"
-
-exit 0
+ip -6 route flush cache 2>/dev/null || true

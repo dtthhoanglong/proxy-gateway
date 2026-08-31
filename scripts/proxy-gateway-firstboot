@@ -1,0 +1,163 @@
+#!/bin/bash
+set -euo pipefail
+
+MARKER="/var/lib/proxy-gateway/firstboot-done"
+SET_NICS="/usr/local/sbin/proxy-gateway-set-nics"
+
+if [ -f "$MARKER" ]; then
+    exit 0
+fi
+
+mkdir -p /var/lib/proxy-gateway
+
+# Prefer the local console when started by systemd.
+if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+    exec </dev/tty >/dev/tty 2>/dev/tty
+fi
+
+echo
+echo "======================================================"
+echo "           Proxy Gateway First Boot Setup"
+echo "======================================================"
+echo
+
+if [ ! -s /etc/machine-id ]; then
+    echo "[1/4] Generating machine-id..."
+    systemd-machine-id-setup
+else
+    echo "[1/4] machine-id already exists."
+fi
+
+if ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+    echo "[2/4] Generating SSH host keys..."
+    ssh-keygen -A
+else
+    echo "[2/4] SSH host keys already exist."
+fi
+
+if [ ! -x "$SET_NICS" ]; then
+    echo "ERROR: $SET_NICS not found or not executable." >&2
+    exit 1
+fi
+
+echo "[3/4] Detecting network interfaces..."
+echo
+
+mapfile -t NICS < <(
+    for p in /sys/class/net/*; do
+        [ -e "$p" ] || continue
+        nic="$(basename "$p")"
+
+        [ "$nic" = "lo" ] && continue
+
+        # Skip obvious virtual/tunnel interfaces.
+        case "$nic" in
+            hev*|tun*|tap*|veth*|docker*|br-*|virbr*|vmnet*|wg*|ppp*)
+                continue
+                ;;
+        esac
+
+        # Prefer interfaces backed by a real device.
+        [ -e "$p/device" ] || continue
+
+        printf '%s\n' "$nic"
+    done | sort
+)
+
+if [ "${#NICS[@]}" -lt 2 ]; then
+    echo "ERROR: At least two physical network interfaces are required." >&2
+    echo "Detected interfaces: ${NICS[*]:-(none)}" >&2
+    exit 1
+fi
+
+show_interfaces() {
+    echo "Available network interfaces:"
+    echo
+
+    local i nic mac state
+    for i in "${!NICS[@]}"; do
+        nic="${NICS[$i]}"
+        mac="$(cat "/sys/class/net/$nic/address" 2>/dev/null || echo '?')"
+        state="$(cat "/sys/class/net/$nic/operstate" 2>/dev/null || echo '?')"
+        printf "  %d) %-16s MAC %-17s state=%s\n" \
+            "$((i + 1))" "$nic" "$mac" "$state"
+    done
+    echo
+}
+
+read_choice() {
+    local prompt="$1"
+    local value
+
+    while true; do
+        read -r -p "$prompt" value
+
+        if [[ "$value" =~ ^[0-9]+$ ]] &&
+           [ "$value" -ge 1 ] &&
+           [ "$value" -le "${#NICS[@]}" ]; then
+            REPLY="${NICS[$((value - 1))]}"
+            return 0
+        fi
+
+        echo "Invalid selection. Choose a number from 1 to ${#NICS[@]}."
+    done
+}
+
+while true; do
+    show_interfaces
+
+    read_choice "Select WAN interface number: "
+    WAN_IF="$REPLY"
+
+    read_choice "Select LAN interface number: "
+    LAN_IF="$REPLY"
+
+    if [ "$WAN_IF" = "$LAN_IF" ]; then
+        echo
+        echo "WAN and LAN cannot use the same interface."
+        echo
+        continue
+    fi
+
+    echo
+    echo "Selected configuration:"
+    echo "  WAN = $WAN_IF"
+    echo "  LAN = $LAN_IF"
+    echo
+
+    read -r -p "Apply this configuration? [y/N]: " confirm
+    case "$confirm" in
+        y|Y|yes|YES)
+            break
+            ;;
+        *)
+            echo
+            echo "Selection cancelled. Choose again."
+            echo
+            ;;
+    esac
+done
+
+echo
+echo "Applying Proxy Gateway network configuration..."
+"$SET_NICS" "$WAN_IF" "$LAN_IF"
+
+echo
+echo "[4/4] Verifying configuration..."
+
+if [ ! -s /etc/proxy-gateway/network.conf ]; then
+    echo "ERROR: /etc/proxy-gateway/network.conf was not created." >&2
+    exit 1
+fi
+
+touch "$MARKER"
+
+echo
+echo "======================================================"
+echo " Proxy Gateway first-boot initialization complete."
+echo " WAN: $WAN_IF"
+echo " LAN: $LAN_IF"
+echo "======================================================"
+echo
+
+exit 0
