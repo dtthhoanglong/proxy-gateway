@@ -2,7 +2,7 @@
 Description=Proxy Gateway first boot initialization
 After=local-fs.target systemd-udev-settle.service
 Wants=systemd-udev-settle.service
-Before=ssh.service
+Before=ssh.service isc-dhcp-server.service
 
 [Service]
 Type=oneshot
