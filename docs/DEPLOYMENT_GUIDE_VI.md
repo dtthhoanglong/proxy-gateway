@@ -3,7 +3,8 @@
 **Nền tảng mục tiêu:** Ubuntu Server 22.04 LTS\
 **Kiến trúc:** 1 Ubuntu Gateway, tối đa 20 VM (VM101--VM120), mỗi VM
 dùng một SOCKS5 riêng qua HEV SOCKS5 Tunnel\
-**Mạng LAN mặc định:** `10.0.1.0/24` --- Gateway `10.0.1.1`\
+**Mạng LAN mặc định:** `10.0.1.0/24` và `fd10:0:1::/64` --- Gateway `10.0.1.1` / `fd10:0:1::1`\
+**IPv6 client:** RA/SLAAC (Automatic), nhận diện client IPv6 theo MAC\
 **DNS:** DNS riêng từng VM bằng Unbound, có DNS fail-close
 
 > Tài liệu này là bản tiếng Việt hoàn chỉnh, viết lại theo quy trình đã
@@ -17,7 +18,7 @@ dùng một SOCKS5 riêng qua HEV SOCKS5 Tunnel\
 
 1.  Tắt Cloud-Init quản lý mạng
 2.  Xác định và cấu hình WAN/LAN
-3.  Bật IPv4 Forwarding
+3.  Bật IPv4/IPv6 Forwarding
 4.  Cài đặt và cấu hình ISC DHCP Server
 5.  Cài HEV SOCKS5 Tunnel
 6.  Cài các gói phụ thuộc của Proxy Gateway
@@ -164,12 +165,16 @@ network:
   ethernets:
     WAN_INTERFACE:
       dhcp4: true
+      dhcp6: false
+      accept-ra: true
       optional: true
 
     LAN_INTERFACE:
       dhcp4: false
+      dhcp6: false
       addresses:
         - 10.0.1.1/24
+        - fd10:0:1::1/64
       optional: true
 ```
 
@@ -194,15 +199,18 @@ ip -br a
 ip route
 ```
 
-LAN phải có `10.0.1.1/24` và WAN phải có default route. **Không tiếp tục
+LAN phải có `10.0.1.1/24` và `fd10:0:1::1/64`; WAN phải có IPv4 default route và, khi ISP/router hỗ trợ IPv6, IPv6 default route qua RA. **Không tiếp tục
 cài/cấu hình DHCP nếu interface LAN chưa có `10.0.1.1/24`.**
 
 ------------------------------------------------------------------------
 
-# Chương 3 --- Bật IPv4 Forwarding
+# Chương 3 --- Bật IPv4 và IPv6 Forwarding
 
 ``` bash
-echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-proxy-gateway.conf
+sudo tee /etc/sysctl.d/99-proxy-gateway.conf >/dev/null <<'EOF'
+net.ipv4.ip_forward=1
+net.ipv6.conf.all.forwarding=1
+EOF
 sudo sysctl --system
 ```
 
@@ -210,12 +218,14 @@ Kiểm tra:
 
 ``` bash
 sysctl net.ipv4.ip_forward
+sysctl net.ipv6.conf.all.forwarding
 ```
 
 Kết quả:
 
 ``` text
 net.ipv4.ip_forward = 1
+net.ipv6.conf.all.forwarding = 1
 ```
 
 ------------------------------------------------------------------------
@@ -370,6 +380,7 @@ sudo apt install -y \
   python3-flask \
   gunicorn \
   unbound \
+  radvd \
   dnsutils
 ```
 
@@ -388,6 +399,7 @@ command -v iptables
 command -v python3
 command -v unbound
 command -v unbound-checkconf
+command -v radvd
 command -v dig
 ```
 
@@ -531,6 +543,8 @@ WAN_IF="ens37"
 
 LAN_IP="10.0.1.1"
 LAN_NET="10.0.1.0/24"
+LAN_IPV6="fd10:0:1::1"
+LAN_NET6="fd10:0:1::/64"
 
 WAN_GW="192.168.2.1"
 ```
@@ -546,6 +560,39 @@ cat /etc/proxy-gateway/network.conf
 Các script `add-hev-instance.sh` và `remove-hev-instance.sh` đọc file
 này. `instance.conf` của mỗi VM sẽ lưu lại interface/network tương ứng
 để các script runtime sử dụng.
+
+------------------------------------------------------------------------
+
+## 8.1 Cấu hình Router Advertisement cho IPv6 Automatic
+
+Client IPv6 không dùng DHCPv6 reservation. Gateway quảng bá prefix ULA và DNS bằng `radvd`; Windows có thể để **IPv6 = Automatic** và **DNS = Automatic**. Mapping proxy IPv6 được thực hiện theo MAC, không phụ thuộc địa chỉ SLAAC tạm thời của client.
+
+``` bash
+sudo tee /etc/radvd.conf >/dev/null <<'EOF'
+interface LAN_INTERFACE
+{
+    AdvSendAdvert on;
+    MinRtrAdvInterval 3;
+    MaxRtrAdvInterval 10;
+
+    prefix fd10:0:1::/64
+    {
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+
+    RDNSS fd10:0:1::1
+    {
+        AdvRDNSSLifetime 20;
+    };
+};
+EOF
+
+sudo radvd --configtest
+sudo systemctl enable --now radvd
+```
+
+Thay `LAN_INTERFACE` bằng NIC LAN thật. `AdvRDNSSLifetime 20` phù hợp với `MaxRtrAdvInterval 10` và tránh cảnh báo lifetime trên radvd 2.18. Không cần cấu hình DHCPv6; ISC DHCP vẫn chỉ phục vụ IPv4.
 
 ------------------------------------------------------------------------
 
@@ -664,14 +711,16 @@ ip route
 cat /etc/proxy-gateway/network.conf
 ```
 
-Xác nhận LAN có `10.0.1.1/24`, WAN có default route và `network.conf`
+Xác nhận LAN có `10.0.1.1/24` và `fd10:0:1::1/64`, WAN có default route và `network.conf`
 khớp interface thật.
 
 ## 11.2 Forwarding và DHCP
 
 ``` bash
 sysctl net.ipv4.ip_forward
+sysctl net.ipv6.conf.all.forwarding
 systemctl is-active isc-dhcp-server
+systemctl is-active radvd
 sudo dhcpd -t -4 -cf /etc/dhcp/dhcpd.conf
 ```
 
@@ -718,7 +767,7 @@ Default `unbound.service` nên `inactive`; DNS per-VM sẽ chạy qua
 
 # Chương 12 --- Tạo và kiểm thử VM101
 
-Nên kiểm thử một VM hoàn chỉnh trước khi triển khai VM102--VM120.
+Nên kiểm thử một VM hoàn chỉnh cho từng mode trước khi triển khai VM102--VM120. Proxy Type có thể là `SOCKS5 IPv4` hoặc `SOCKS5 IPv6`; một MAC chỉ nên được gán cho một proxy family tại một thời điểm.
 
 ## 12.1 Chuẩn bị VM
 
@@ -745,6 +794,7 @@ Dùng chức năng **Add VM** và nhập:
 -   SOCKS5 port
 -   Username
 -   Password
+-   Proxy Type: `SOCKS5 IPv4` hoặc `SOCKS5 IPv6`
 
 Không cần chạy `add-hev-instance.sh` thủ công khi sử dụng Web UI.
 
@@ -850,7 +900,28 @@ sudo systemctl start hev-socks5-tunnel@101
 Không restart DNS và không renew DHCP. VM phải tự phục hồi DNS và
 Internet. Kiểm tra lại public IP SOCKS5.
 
-## 12.9 Kiểm tra reboot Gateway
+## 12.9 Kiểm tra SOCKS5 IPv6 với Windows Automatic
+
+Với một VM được gán `SOCKS5 IPv6`, có thể tắt IPv4 để kiểm thử thuần IPv6 và để **IPv6 = Automatic**, **DNS = Automatic**. Windows phải nhận prefix `fd10:0:1::/64`, default gateway link-local của Gateway và DNS `fd10:0:1::1`.
+
+``` powershell
+ipconfig /all
+nslookup facebook.com
+curl.exe -6 https://ifconfig.co
+```
+
+`nslookup` phải dùng DNS `fd10:0:1::1`; `curl -6` phải trả về public IPv6 của SOCKS5 IPv6 đã gán, không phải IPv6 WAN trực tiếp. Địa chỉ SLAAC/temporary của Windows có thể thay đổi sau reboot mà mapping vẫn phải hoạt động vì policy IPv6 nhận diện client theo MAC.
+
+Trên Gateway có thể kiểm tra:
+
+``` bash
+ip -6 rule show
+sudo ip6tables -t mangle -L -n -v
+sudo ip6tables -t nat -L -n -v
+sudo ip6tables -L FORWARD -n -v
+```
+
+## 12.10 Kiểm tra reboot Gateway
 
 Trước reboot:
 
@@ -927,6 +998,7 @@ Các dữ liệu quan trọng cần backup gồm:
 /etc/dhcp/dhcpd.conf
 /etc/default/isc-dhcp-server
 /etc/proxy-gateway/network.conf
+/etc/radvd.conf
 /etc/unbound/proxy-gateway/
 /etc/systemd/system/hev-socks5-tunnel@.service
 /etc/systemd/system/proxy-gateway-dns@.service
@@ -1035,6 +1107,10 @@ ip rule
 
 echo '=== FORWARDING ==='
 sysctl net.ipv4.ip_forward
+sysctl net.ipv6.conf.all.forwarding
+
+echo '=== RADVD ==='
+systemctl is-active radvd
 
 echo '=== DHCP ==='
 systemctl is-active isc-dhcp-server
@@ -1058,9 +1134,10 @@ credential SOCKS5.
 
 -   [ ] Cloud-Init không còn quản lý network.
 -   [ ] WAN và LAN được xác định đúng.
--   [ ] LAN giữ `10.0.1.1/24`.
+-   [ ] LAN giữ `10.0.1.1/24` và `fd10:0:1::1/64`.
 -   [ ] `/etc/proxy-gateway/network.conf` khớp phần cứng hiện tại.
--   [ ] IPv4 forwarding = `1`.
+-   [ ] IPv4 forwarding = `1` và IPv6 forwarding = `1`.
+-   [ ] `radvd` active; client IPv6 Automatic nhận prefix/DNS qua RA.
 -   [ ] ISC DHCP Server chạy trên LAN.
 -   [ ] DHCP cấp gateway `10.0.1.1` và DNS `10.0.1.1`.
 -   [ ] HEV binary đã cài và chạy được.
@@ -1069,8 +1146,8 @@ credential SOCKS5.
 -   [ ] Đủ 3 systemd unit và đã `daemon-reload`.
 -   [ ] Web UI hoạt động.
 -   [ ] VM101 nhận đúng IP/MAC reservation.
--   [ ] VM101 resolve DNS qua `10.0.1.1`.
--   [ ] VM101 ra đúng public IP của SOCKS5.
+-   [ ] VM IPv4 resolve DNS qua `10.0.1.1`; VM IPv6 Automatic resolve qua `fd10:0:1::1`.
+-   [ ] VM IPv4/IPv6 ra đúng public IP của SOCKS5 tương ứng.
 -   [ ] HEV chết thì DNS/Internet của VM tương ứng fail-close.
 -   [ ] Không fallback traffic trực tiếp qua WAN.
 -   [ ] HEV start lại thì VM tự recovery.

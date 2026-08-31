@@ -343,11 +343,11 @@ if [ "$IP_MODE" = "ipv6" ]; then
 cat > "$DNS_CONFIG" <<EOF_DNS
 server:
     verbosity: 1
+    pidfile: ""
 
     interface: ${LAN_IPV6}@${DNS_PORT}
 
-    access-control: ${CLIENT_IPV6}/128 allow
-    access-control: ${LAN_IPV6}/128 allow
+    access-control: ${LAN_NET6} allow
     access-control: ::/0 refuse
 
     do-ip4: no
@@ -373,6 +373,7 @@ else
 cat > "$DNS_CONFIG" <<EOF_DNS
 server:
     verbosity: 1
+    pidfile: ""
 
     interface: ${LAN_IP}@${DNS_PORT}
 

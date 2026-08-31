@@ -204,6 +204,61 @@ while ip -6 rule del priority "$RULE_PRIORITY" 2>/dev/null; do
 done
 
 #
+# Remove IPv6 automatic-client MAC policy/DNS chains.
+#
+
+MARK_CHAIN="PGW6M${INSTANCE}"
+FWD_CHAIN="PGW6F${INSTANCE}"
+DNS_CHAIN="PGW6D${INSTANCE}"
+MARK_VALUE="${INSTANCE}"
+
+while ip6tables -t mangle -C PREROUTING -i "$LAN_IF" -j "$MARK_CHAIN" 2>/dev/null; do
+    ip6tables -t mangle -D PREROUTING -i "$LAN_IF" -j "$MARK_CHAIN"
+done
+ip6tables -t mangle -F "$MARK_CHAIN" 2>/dev/null || true
+ip6tables -t mangle -X "$MARK_CHAIN" 2>/dev/null || true
+
+while ip6tables -t nat -C PREROUTING -i "$LAN_IF" -j "$DNS_CHAIN" 2>/dev/null; do
+    ip6tables -t nat -D PREROUTING -i "$LAN_IF" -j "$DNS_CHAIN"
+done
+ip6tables -t nat -F "$DNS_CHAIN" 2>/dev/null || true
+ip6tables -t nat -X "$DNS_CHAIN" 2>/dev/null || true
+
+while ip6tables -C FORWARD -i "$LAN_IF" -j "$FWD_CHAIN" 2>/dev/null; do
+    ip6tables -D FORWARD -i "$LAN_IF" -j "$FWD_CHAIN"
+done
+ip6tables -F "$FWD_CHAIN" 2>/dev/null || true
+ip6tables -X "$FWD_CHAIN" 2>/dev/null || true
+
+while ip6tables -C FORWARD -i "$TUN_IF" -o "$LAN_IF" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT 2>/dev/null; do
+    ip6tables -D FORWARD -i "$TUN_IF" -o "$LAN_IF" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+done
+
+while ip -6 rule del fwmark "$MARK_VALUE" lookup "$ROUTE_TABLE" 2>/dev/null; do :; done
+
+if [ -n "${CLIENT_MAC:-}" ]; then
+    CLIENT_MAC="$(printf '%s' "$CLIENT_MAC" | tr '[:upper:]' '[:lower:]' | tr '-' ':')"
+
+    while ip6tables -t mangle -C PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" -j MARK --set-mark "$MARK_VALUE" 2>/dev/null; do
+        ip6tables -t mangle -D PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" -j MARK --set-mark "$MARK_VALUE"
+    done
+
+    while ip6tables -t mangle -C PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" ! -d "$LAN_NET6" -j MARK --set-mark "$MARK_VALUE" 2>/dev/null; do
+        ip6tables -t mangle -D PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" ! -d "$LAN_NET6" -j MARK --set-mark "$MARK_VALUE"
+    done
+
+    for proto in udp tcp; do
+        while ip6tables -t nat -C PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" -d "${LAN_IPV6}/128" -p "$proto" --dport 53 -j DNAT --to-destination "[${LAN_IPV6}]:${DNS_PORT}" 2>/dev/null; do
+            ip6tables -t nat -D PREROUTING -i "$LAN_IF" -m mac --mac-source "$CLIENT_MAC" -d "${LAN_IPV6}/128" -p "$proto" --dport 53 -j DNAT --to-destination "[${LAN_IPV6}]:${DNS_PORT}"
+        done
+    done
+fi
+
+while ip6tables -C INPUT -i "$LAN_IF" -s "$LAN_NET6" -p udp --dport "$DNS_PORT" -j ACCEPT 2>/dev/null; do
+    ip6tables -D INPUT -i "$LAN_IF" -s "$LAN_NET6" -p udp --dport "$DNS_PORT" -j ACCEPT
+done
+
+#
 # Remove per-VM DNS redirect.
 #
 

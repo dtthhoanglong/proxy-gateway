@@ -99,6 +99,36 @@ LAN_NET6="${LAN_NET6}"
 WAN_GW="${WAN_GW}"
 CONF
 
+if ! command -v radvd >/dev/null 2>&1; then
+    echo "ERROR: radvd is not installed." >&2
+    exit 1
+fi
+
+cat > /etc/radvd.conf <<RADVD
+interface ${LAN_IF}
+{
+    AdvSendAdvert on;
+    MinRtrAdvInterval 3;
+    MaxRtrAdvInterval 10;
+
+    prefix ${LAN_NET6}
+    {
+        AdvOnLink on;
+        AdvAutonomous on;
+    };
+
+    RDNSS ${LAN_IPV6}
+    {
+        AdvRDNSSLifetime 20;
+    };
+};
+RADVD
+
+radvd --configtest
+
+systemctl enable radvd
+systemctl restart radvd
+
 systemctl restart isc-dhcp-server
 
 echo
