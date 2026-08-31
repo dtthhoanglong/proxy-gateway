@@ -1177,7 +1177,7 @@ Example:
 ```bash
 sudo /usr/local/sbin/set-dhcp-reservation.sh \
     104 \
-    00:0C:29:4E:24:6F
+    02:00:00:00:01:04
 ```
 
 ---

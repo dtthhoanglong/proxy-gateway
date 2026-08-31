@@ -825,7 +825,7 @@ Ví dụ:
 ```
 host vm104 {
 
-    hardware ethernet 00:0c:29:4e:24:6f;
+    hardware ethernet 02:00:00:00:01:04;
 
     fixed-address 10.0.1.104;
 

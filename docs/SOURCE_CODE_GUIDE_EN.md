@@ -690,7 +690,7 @@ if [ "$#" -ne 2 ]; then
     echo "  sudo $0 INSTANCE MAC_ADDRESS"
     echo
     echo "Ví dụ:"
-    echo "  sudo $0 103 00:0C:29:66:CD:07"
+    echo "  sudo $0 103 02:00:00:00:01:03"
     exit 1
 fi
 

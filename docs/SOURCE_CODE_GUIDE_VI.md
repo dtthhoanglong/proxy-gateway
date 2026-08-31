@@ -732,7 +732,7 @@ Regex cuối cùng bắt buộc đúng 6 octet.
 
 ```text
 host vm104 {
-    hardware ethernet 00:0c:29:4e:24:6f;
+    hardware ethernet 02:00:00:00:01:04;
     fixed-address 10.0.1.104;
 }
 ```
@@ -761,7 +761,7 @@ if [ "$#" -ne 2 ]; then
     echo "  sudo $0 INSTANCE MAC_ADDRESS"
     echo
     echo "Ví dụ:"
-    echo "  sudo $0 103 00:0C:29:66:CD:07"
+    echo "  sudo $0 103 02:00:00:00:01:03"
     exit 1
 fi
 
