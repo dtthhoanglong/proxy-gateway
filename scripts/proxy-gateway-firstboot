@@ -10,10 +10,6 @@ fi
 
 mkdir -p /var/lib/proxy-gateway
 
-# Prefer the local console when started by systemd.
-if [ -r /dev/tty ] && [ -w /dev/tty ]; then
-    exec </dev/tty >/dev/tty 2>/dev/tty
-fi
 
 echo
 echo "======================================================"

@@ -2,7 +2,7 @@
 Description=Proxy Gateway first boot initialization
 After=local-fs.target systemd-udev-settle.service
 Wants=systemd-udev-settle.service
-Before=ssh.service isc-dhcp-server.service
+Before=ssh.service getty@tty1.service
 
 [Service]
 Type=oneshot
@@ -13,7 +13,6 @@ StandardOutput=tty
 StandardError=tty
 TTYPath=/dev/tty1
 TTYReset=yes
-TTYVHangup=yes
 
 [Install]
 WantedBy=multi-user.target
