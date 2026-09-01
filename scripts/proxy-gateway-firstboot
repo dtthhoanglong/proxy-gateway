@@ -10,6 +10,10 @@ fi
 
 mkdir -p /var/lib/proxy-gateway
 
+# Let early boot console messages finish before drawing the setup screen.
+sleep 5
+printf '\033[2J\033[H'
+
 
 echo
 echo "======================================================"
