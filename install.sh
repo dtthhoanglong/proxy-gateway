@@ -33,6 +33,7 @@ apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y \
   isc-dhcp-server wget git netcat-openbsd iptables python3 python3-pip \
   python3-flask gunicorn unbound radvd dnsutils
+systemctl disable --now isc-dhcp-server6.service 2>/dev/null || true
 systemctl disable --now unbound 2>/dev/null || true
 
 echo '[2/10] Disabling Cloud-Init network management...'
