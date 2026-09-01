@@ -154,6 +154,38 @@ Web UI mặc định:
 http://10.0.1.1:8080/
 ```
 
+## 3.4 Kiểm tra sau reboot
+
+Sau khi cài đặt hoàn tất, nên reboot Proxy Gateway ít nhất một lần:
+
+```bash
+sudo reboot
+```
+
+Sau khi máy khởi động lại, kiểm tra:
+
+```bash
+ip -br a
+systemctl is-active isc-dhcp-server radvd proxy-gateway-ui
+systemctl --no-pager --failed
+```
+
+Kết quả yêu cầu:
+
+- WAN và LAN phải lên đúng interface đã chọn khi cài đặt.
+- LAN phải có `10.0.1.1/24` và `fd10:0:1::1/64`.
+- `isc-dhcp-server`, `radvd` và `proxy-gateway-ui` phải là `active`.
+- `systemctl --failed` không được có service lỗi.
+- Proxy Gateway không sử dụng DHCPv6; IPv6 LAN được cấp bằng RA/SLAAC từ `radvd`. Installer tự disable `isc-dhcp-server6.service`.
+
+Nếu đã tạo proxy instance trước khi reboot, kiểm tra thêm:
+
+```bash
+systemctl --no-pager --type=service --state=running | grep -E 'hev|proxy-gateway-dns'
+```
+
+Các HEV và DNS instance đã tạo phải tự khởi động lại sau reboot.
+
 Nếu installer kết thúc bằng `PASS` và các kiểm tra trên đúng, tiếp tục Chương 4 trước khi Add VM.
 
 ------------------------------------------------------------------------
