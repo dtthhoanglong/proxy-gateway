@@ -154,13 +154,15 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>VM</th>
-                            <th>IP LAN</th>
-                            <th>MAC address</th>
-                            <th>Tunnel</th>
-                            <th>SOCKS5</th>
-                            <th>Username</th>
-                            <th>HEV</th>
+                <th>VM</th>
+                <th>IP LAN</th>
+                <th>MAC address</th>
+                <th>Tunnel</th>
+                <th>SOCKS5</th>
+                <th>Username</th>
+                <th>HEV</th>
+                <th>TX</th>
+                <th>RX</th>
                         </tr>
                     </thead>
 
@@ -202,20 +204,19 @@
                             <td>{{ vm.proxy_username or "-" }}</td>
 
                             <td>
-                                {% if vm.hev_active %}
-                                    <span class="active">Running</span>
-                                {% elif vm.hev_configured %}
-                                    <span class="inactive">Stopped</span>
-                                {% else %}
-                                    <span class="muted">
-                                        Chưa cấu hình
-                                    </span>
-                                {% endif %}
+                {% if vm.hev_configured %}
+                    ✓
+                {% else %}
+                    <span class="muted">-</span>
+                {% endif %}
                             </td>
+
+                <td>{{ vm.tx }}</td>
+                <td>{{ vm.rx }}</td>
                         </tr>
                     {% else %}
                         <tr>
-                            <td colspan="7" class="muted">
+                            <td colspan="9" class="muted">
                                 Chưa có VM nào được cấu hình.
                             </td>
                         </tr>

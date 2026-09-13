@@ -191,14 +191,20 @@
                 <strong>Username</strong>
                 <span>{{ vm.proxy_username or "-" }}</span>
 
-                <strong>HEV</strong>
-                <span>
-                    {% if vm.hev_active %}
-                        <span class="active">Running</span>
-                    {% else %}
-                        <span class="inactive">Stopped</span>
-                    {% endif %}
-                </span>
+		<strong>HEV</strong>
+<span>
+    {% if vm.hev_configured %}
+        ✓
+    {% else %}
+        -
+    {% endif %}
+</span>
+
+<strong>TX</strong>
+<span>{{ vm.tx }}</span>
+
+<strong>RX</strong>
+<span>{{ vm.rx }}</span>
             </div>
         </section>
 

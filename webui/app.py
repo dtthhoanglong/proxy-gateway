@@ -228,19 +228,40 @@ def parse_instance_meta(instance: int) -> dict[str, str]:
 def service_name(instance: int) -> str:
     return f"hev-socks5-tunnel@{instance}.service"
 
-
-def service_is_active(instance: int) -> bool:
-    success, _ = run_command(
-        [
-            "systemctl",
-            "is-active",
-            "--quiet",
-            service_name(instance),
-        ],
-        timeout=5,
+def read_interface_bytes(interface: str) -> tuple[int, int]:
+    tx_path = Path(
+        f"/sys/class/net/{interface}/statistics/tx_bytes"
     )
-    return success
+    rx_path = Path(
+        f"/sys/class/net/{interface}/statistics/rx_bytes"
+    )
 
+    try:
+        tx_bytes = int(tx_path.read_text().strip())
+        rx_bytes = int(rx_path.read_text().strip())
+        return tx_bytes, rx_bytes
+    except (FileNotFoundError, ValueError, OSError):
+        return 0, 0
+
+
+def format_bytes(value: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+
+    size = float(value)
+
+    for unit in units:
+        if size < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(size)} B"
+            if size < 10:
+                return f"{size:.2f} {unit}"
+            if size < 100:
+                return f"{size:.1f} {unit}"
+            return f"{size:.0f} {unit}"
+
+        size /= 1024
+
+    return "0 B"
 
 def configured_instances() -> set[int]:
     instances: set[int] = set()
@@ -267,7 +288,6 @@ def configured_instances() -> set[int]:
 
     return instances
 
-
 def build_vm(instance: int) -> dict[str, Any]:
     reservations = parse_reservations()
     reservation = reservations.get(instance, {})
@@ -278,24 +298,33 @@ def build_vm(instance: int) -> dict[str, Any]:
         HEV_ROOT / str(instance) / "config.yml"
     ).exists()
 
+    tx_bytes, rx_bytes = read_interface_bytes(
+        hev["tunnel"]
+    )
+
     return {
         "instance": instance,
         "name": f"VM{instance}",
         "ip_mode": meta["ip_mode"],
-        "ip": (meta["client_ipv6"] if meta["ip_mode"] == "ipv6" else reservation.get("ip", meta["client_ip"])),
-        "mac": (meta["client_mac"] or reservation.get("mac", "")),
+        "ip": (
+            meta["client_ipv6"]
+            if meta["ip_mode"] == "ipv6"
+            else reservation.get("ip", meta["client_ip"])
+        ),
+        "mac": (
+            meta["client_mac"]
+            or reservation.get("mac", "")
+        ),
         "tunnel": hev["tunnel"],
         "proxy_ip": hev["proxy_ip"],
         "proxy_port": hev["proxy_port"],
         "proxy_username": hev["proxy_username"],
         "hev_configured": config_exists,
-        "hev_active": (
-            service_is_active(instance)
-            if config_exists
-            else False
-        ),
+        "tx_bytes": tx_bytes,
+        "rx_bytes": rx_bytes,
+        "tx": format_bytes(tx_bytes),
+        "rx": format_bytes(rx_bytes),
     }
-
 
 def build_vm_list() -> list[dict[str, Any]]:
     reservations = set(parse_reservations().keys())
