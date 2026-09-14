@@ -3,20 +3,18 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
-	"net"
-	"time"
-
 	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+	"log"
+	"net"
+	"time"
 )
 
 const listenAddr = ":18443"
 
 func main() {
 	log.Printf("ICMP Relay Server listening on %s", listenAddr)
-
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("listen failed: %v", err)
@@ -33,10 +31,8 @@ func main() {
 		go handleConnection(conn)
 	}
 }
-
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-
 	log.Printf("TCP connection from %s", conn.RemoteAddr())
 
 	decoder := json.NewDecoder(conn)
@@ -54,6 +50,14 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 
+	log.Printf(
+		"PING request: client_vm=%s destination=%s id=%d seq=%d",
+		req.ClientVM,
+		req.Destination,
+		req.ID,
+		req.Sequence,
+	)
+
 	resp := performPing(&req)
 
 	if err := encoder.Encode(resp); err != nil {
@@ -61,15 +65,14 @@ func handleConnection(conn net.Conn) {
 		return
 	}
 }
-
 func performPing(req *protocol.PingRequest) protocol.PingResponse {
 	resp := protocol.PingResponse{
 		Type:        protocol.MessagePingResponse,
+		ClientVM:    req.ClientVM,
 		Destination: req.Destination,
 		ID:          req.ID,
 		Sequence:    req.Sequence,
 	}
-
 	timeout := 3 * time.Second
 
 	if req.TimeoutMS > 0 {
@@ -149,8 +152,9 @@ func performPing(req *protocol.PingRequest) protocol.PingResponse {
 		resp.Payload = echo.Data
 
 		log.Printf(
-			"PING %s: reply from %s, seq=%d, rtt=%.3f ms",
+			"PING %s: client_vm=%s reply from %s, seq=%d, rtt=%.3f ms",
 			req.Destination,
+			req.ClientVM,
 			peer,
 			req.Sequence,
 			resp.RTTMS,

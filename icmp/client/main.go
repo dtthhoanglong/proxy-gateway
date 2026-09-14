@@ -3,20 +3,20 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
 	"log"
 	"net"
 	"time"
-
-	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
 )
 
-const relayAddr = "192.168.2.3:18443"
+const relayAddr = "192.168.2.17:18443"
 
 func main() {
 	destination := "8.8.8.8"
-
+	clientVM := "VM101"
 	req := protocol.PingRequest{
 		Type:        protocol.MessagePingRequest,
+		ClientVM:    clientVM,
 		Destination: destination,
 		ID:          uint16(time.Now().UnixNano() & 0xffff),
 		Sequence:    1,
@@ -57,6 +57,7 @@ func main() {
 	fmt.Println("========================================")
 	fmt.Println("        ICMP RELAY TEST RESULT")
 	fmt.Println("========================================")
+	fmt.Printf("Client VM   : %s\n", resp.ClientVM)
 	fmt.Printf("Destination : %s\n", resp.Destination)
 	fmt.Printf("Success     : %v\n", resp.Success)
 

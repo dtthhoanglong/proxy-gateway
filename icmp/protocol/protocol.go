@@ -7,6 +7,7 @@ const (
 
 type PingRequest struct {
 	Type        string `json:"type"`
+	ClientVM    string `json:"client_vm"`
 	Destination string `json:"destination"`
 	ID          uint16 `json:"id"`
 	Sequence    uint16 `json:"sequence"`
@@ -15,12 +16,13 @@ type PingRequest struct {
 }
 
 type PingResponse struct {
-	Type        string `json:"type"`
-	Destination string `json:"destination"`
-	ID          uint16 `json:"id"`
-	Sequence    uint16 `json:"sequence"`
-	Success     bool   `json:"success"`
+	Type        string  `json:"type"`
+	ClientVM    string  `json:"client_vm"`
+	Destination string  `json:"destination"`
+	ID          uint16  `json:"id"`
+	Sequence    uint16  `json:"sequence"`
+	Success     bool    `json:"success"`
 	RTTMS       float64 `json:"rtt_ms"`
-	Error       string `json:"error,omitempty"`
-	Payload     []byte `json:"payload,omitempty"`
+	Error       string  `json:"error,omitempty"`
+	Payload     []byte  `json:"payload,omitempty"`
 }
