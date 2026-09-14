@@ -1,11 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/dtthhoanglong/proxy-gateway/icmp/client/relayclient"
 	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
 	"log"
-	"net"
 	"time"
 )
 
@@ -26,29 +25,14 @@ func main() {
 
 	log.Printf("Connecting to Relay Server %s", relayAddr)
 
-	conn, err := net.DialTimeout("tcp", relayAddr, 5*time.Second)
-	if err != nil {
-		log.Fatalf("connect to relay failed: %v", err)
-	}
-	defer conn.Close()
-
-	if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		log.Fatalf("set connection deadline failed: %v", err)
-	}
-
-	encoder := json.NewEncoder(conn)
-	decoder := json.NewDecoder(conn)
+	client := relayclient.New(relayAddr)
+	defer client.Close()
 
 	start := time.Now()
 
-	if err := encoder.Encode(req); err != nil {
-		log.Fatalf("send PING_REQUEST failed: %v", err)
-	}
-
-	var resp protocol.PingResponse
-
-	if err := decoder.Decode(&resp); err != nil {
-		log.Fatalf("receive PING_RESPONSE failed: %v", err)
+	resp, err := client.PingWithRetry(req)
+	if err != nil {
+		log.Fatalf("ICMP relay request failed: %v", err)
 	}
 
 	elapsed := time.Since(start)
