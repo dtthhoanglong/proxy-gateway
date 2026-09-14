@@ -3,18 +3,21 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
-	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
+	"io"
 	"log"
 	"net"
 	"time"
+
+	"github.com/dtthhoanglong/proxy-gateway/icmp/protocol"
+	"golang.org/x/net/icmp"
+	"golang.org/x/net/ipv4"
 )
 
 const listenAddr = ":18443"
 
 func main() {
 	log.Printf("ICMP Relay Server listening on %s", listenAddr)
+
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		log.Fatalf("listen failed: %v", err)
@@ -31,40 +34,57 @@ func main() {
 		go handleConnection(conn)
 	}
 }
+
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
+
 	log.Printf("TCP connection from %s", conn.RemoteAddr())
 
 	decoder := json.NewDecoder(conn)
 	encoder := json.NewEncoder(conn)
 
-	var req protocol.PingRequest
+	for {
+		var req protocol.PingRequest
 
-	if err := decoder.Decode(&req); err != nil {
-		log.Printf("decode request failed: %v", err)
-		return
-	}
+		if err := decoder.Decode(&req); err != nil {
+			if err == io.EOF {
+				log.Printf("TCP connection closed by %s", conn.RemoteAddr())
+			} else {
+				log.Printf("decode request failed from %s: %v", conn.RemoteAddr(), err)
+			}
+			return
+		}
 
-	if req.Type != protocol.MessagePingRequest {
-		log.Printf("invalid message type: %s", req.Type)
-		return
-	}
+		if req.Type != protocol.MessagePingRequest {
+			log.Printf(
+				"invalid message type from %s: %s",
+				conn.RemoteAddr(),
+				req.Type,
+			)
+			return
+		}
 
-	log.Printf(
-		"PING request: client_vm=%s destination=%s id=%d seq=%d",
-		req.ClientVM,
-		req.Destination,
-		req.ID,
-		req.Sequence,
-	)
+		log.Printf(
+			"PING request: client_vm=%s destination=%s id=%d seq=%d",
+			req.ClientVM,
+			req.Destination,
+			req.ID,
+			req.Sequence,
+		)
 
-	resp := performPing(&req)
+		resp := performPing(&req)
 
-	if err := encoder.Encode(resp); err != nil {
-		log.Printf("send response failed: %v", err)
-		return
+		if err := encoder.Encode(resp); err != nil {
+			log.Printf(
+				"send response failed to %s: %v",
+				conn.RemoteAddr(),
+				err,
+			)
+			return
+		}
 	}
 }
+
 func performPing(req *protocol.PingRequest) protocol.PingResponse {
 	resp := protocol.PingResponse{
 		Type:        protocol.MessagePingResponse,
@@ -73,6 +93,7 @@ func performPing(req *protocol.PingRequest) protocol.PingResponse {
 		ID:          req.ID,
 		Sequence:    req.Sequence,
 	}
+
 	timeout := 3 * time.Second
 
 	if req.TimeoutMS > 0 {
